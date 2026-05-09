@@ -10,6 +10,29 @@ let isTopic = false
 let attemptLoadAdminDataCount = 0
 let adminMemberCount = 0
 let adminPublicKeys = []
+// Kakashi Note: Batch size keeps encrypted-board rendering progressive without flooding decrypt and poll calls.
+const ADMIN_SCROLL_BATCH_SIZE = 10
+const adminBoardInfiniteState = {
+  loadToken: 0,
+  cards: [],
+  cursor: 0,
+  inFlight: false,
+  complete: false,
+  displayedCount: 0,
+  totalCount: 0,
+  isBackgroundLoading: false,
+  container: null,
+  progressEl: null,
+  sharedBoardData: null,
+  scrollHandler: null,
+  backgroundRunnerToken: 0
+}
+const adminBoardSearchCache = {
+  resourcesByKey: new Map(),
+  maxDaysCovered: 0,
+  hasAllRange: false
+}
+const adminBoardDecryptedCardCache = new Map()
 // let kickTransactions = []
 // let banTransactions = []
 let adminBoardState = {
@@ -57,6 +80,14 @@ const saveAdminBoardState = () => {
 console.log("Attempting to load AdminBoard.js")
 
 const loadAdminBoardPage = async () => {
+  // Kakashi Note: Remove other board scroll listeners before loading this board to avoid stale lazy-load callbacks.
+  if (typeof detachMinterBoardInfiniteScroll === "function") {
+    detachMinterBoardInfiniteScroll()
+  }
+  if (typeof detachAdminBoardInfiniteScroll === "function") {
+    detachAdminBoardInfiniteScroll()
+  }
+
   // Clear existing content on the page
   const bodyChildren = document.body.children
 
@@ -97,6 +128,7 @@ const loadAdminBoardPage = async () => {
       <input type="checkbox" id="admin-show-kicked-banned-checkbox" name="kickedBanned" />
       <label for="admin-show-kicked-banned-checkbox">Show Kicked / Banned Cards?</label>
     </div>
+    <div id="admin-board-progress" style="margin-top: 0.75em; min-height: 1.5em;"></div>
     <div id="encrypted-cards-container" class="cards-container" style="margin-top: 20px;"></div>
     <div id="publish-card-view" class="publish-card-view" style="display: none; text-align: left; padding: 20px;">
         <form id="publish-card-form" class="publish-card-form">
@@ -138,7 +170,7 @@ const loadAdminBoardPage = async () => {
   if (refreshCardsButton) {
     refreshCardsButton.addEventListener("click", async () => {
       const encryptedCardsContainer = document.getElementById("encrypted-cards-container")
-      encryptedCardsContainer.innerHTML = "<p>Refreshing cards...</p>"
+      encryptedCardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
       await fetchAllEncryptedCards(true)
     })
   }   
@@ -169,14 +201,14 @@ const loadAdminBoardPage = async () => {
 
   if (showKickedBannedCheckbox) {
     showKickedBannedCheckbox.addEventListener('change', async (event) => {
-      await fetchAllEncryptedCards(true);
+      await fetchAllEncryptedCards()
     })
   }
 
   const showHiddenCardsCheckbox = document.getElementById('admin-show-hidden-checkbox')
   if (showHiddenCardsCheckbox) {
     showHiddenCardsCheckbox.addEventListener('change', async (event) => {
-      await fetchAllEncryptedCards(true)
+      await fetchAllEncryptedCards()
     })
   }
   
@@ -190,6 +222,10 @@ const loadAdminBoardPage = async () => {
 
   document.getElementById("sort-select").addEventListener("change", async () => {
     // Re-load the cards whenever user chooses a new sort option.
+    await fetchAllEncryptedCards()
+  })
+
+  document.getElementById("time-range-select").addEventListener("change", async () => {
     await fetchAllEncryptedCards()
   })
 
@@ -254,6 +290,245 @@ const loadOrFetchAdminGroupsData = async () => {
   }
 }
 
+const adminRunWithConcurrency = async (tasks, concurrency = 8) => {
+  const results = new Array(tasks.length)
+  let index = 0
+
+  const workers = new Array(concurrency).fill(null).map(async () => {
+    while (index < tasks.length) {
+      const currentIndex = index++
+      const task = tasks[currentIndex]
+      results[currentIndex] = await task()
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
+const getAdminBoardResourceTimestamp = (resource) => resource?.updated || resource?.created || 0
+const getAdminBoardResourceCacheKey = (resource) => `${resource?.name || ""}::${resource?.identifier || ""}::${getAdminBoardResourceTimestamp(resource)}`
+
+const fetchCachedAdminSearchResources = async (dayRange, afterTime, forceSearch = false) => {
+  if (forceSearch) {
+    adminBoardSearchCache.resourcesByKey.clear()
+    adminBoardSearchCache.maxDaysCovered = 0
+    adminBoardSearchCache.hasAllRange = false
+  }
+
+  const cacheCoversRange = dayRange === 0
+    ? adminBoardSearchCache.hasAllRange
+    : (adminBoardSearchCache.hasAllRange || adminBoardSearchCache.maxDaysCovered >= dayRange)
+
+  if (!cacheCoversRange) {
+    const fetched = await searchSimple('MAIL_PRIVATE', `${encryptedCardIdentifierPrefix}`, '', 0, 0, '', false, true, afterTime)
+    const fetchedArray = Array.isArray(fetched) ? fetched : []
+    for (const resource of fetchedArray) {
+      adminBoardSearchCache.resourcesByKey.set(getAdminBoardResourceCacheKey(resource), resource)
+    }
+    if (dayRange === 0) {
+      adminBoardSearchCache.hasAllRange = true
+    } else {
+      adminBoardSearchCache.maxDaysCovered = Math.max(adminBoardSearchCache.maxDaysCovered, dayRange)
+    }
+  }
+
+  const allCached = Array.from(adminBoardSearchCache.resourcesByKey.values())
+  if (afterTime > 0) {
+    return allCached.filter((resource) => getAdminBoardResourceTimestamp(resource) >= afterTime)
+  }
+  return allCached
+}
+
+const getDecryptedAdminCardCached = async (cardResource) => {
+  const cacheKey = getAdminBoardResourceCacheKey(cardResource)
+  if (adminBoardDecryptedCardCache.has(cacheKey)) {
+    return adminBoardDecryptedCardCache.get(cacheKey)
+  }
+  const cardDataResponse = await qortalRequest({
+    action: "FETCH_QDN_RESOURCE",
+    name: cardResource.name,
+    service: "MAIL_PRIVATE",
+    identifier: cardResource.identifier,
+    encoding: "base64",
+  })
+  if (!cardDataResponse) {
+    return null
+  }
+  const decryptedCardData = await decryptAndParseObject(cardDataResponse)
+  adminBoardDecryptedCardCache.set(cacheKey, decryptedCardData)
+  return decryptedCardData
+}
+
+const detachAdminBoardInfiniteScroll = () => {
+  if (adminBoardInfiniteState.scrollHandler) {
+    window.removeEventListener("scroll", adminBoardInfiniteState.scrollHandler)
+    adminBoardInfiniteState.scrollHandler = null
+  }
+}
+
+const removeAdminBoardSkeleton = (cardIdentifier) => {
+  const skeletonCard = document.getElementById(`skeleton-${cardIdentifier}`)
+  if (skeletonCard) {
+    skeletonCard.remove()
+  }
+}
+
+const replaceAdminBoardSkeleton = (cardIdentifier, htmlContent) => {
+  const skeletonCard = document.getElementById(`skeleton-${cardIdentifier}`)
+  if (skeletonCard) {
+    skeletonCard.outerHTML = htmlContent
+  }
+}
+
+const maybeRenderMoreAdminBoardCards = async (loadToken) => {
+  if (loadToken !== adminBoardInfiniteState.loadToken) return
+  if (adminBoardInfiniteState.inFlight || adminBoardInfiniteState.complete) return
+  await renderAdminBoardCardBatch(loadToken)
+}
+
+const startAdminBoardBackgroundRender = (loadToken) => {
+  if (adminBoardInfiniteState.backgroundRunnerToken === loadToken) return
+  adminBoardInfiniteState.backgroundRunnerToken = loadToken
+  const run = async () => {
+    try {
+      while (loadToken === adminBoardInfiniteState.loadToken && !adminBoardInfiniteState.complete) {
+        await maybeRenderMoreAdminBoardCards(loadToken)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+    } catch (error) {
+      console.warn("Error during admin board background render:", error)
+    } finally {
+      if (adminBoardInfiniteState.backgroundRunnerToken === loadToken) {
+        adminBoardInfiniteState.backgroundRunnerToken = 0
+      }
+    }
+  }
+  run()
+}
+
+const updateAdminBoardProgressText = () => {
+  const progressEl = adminBoardInfiniteState.progressEl
+  if (!progressEl) return
+
+  const displayed = adminBoardInfiniteState.displayedCount
+  const total = adminBoardInfiniteState.totalCount || adminBoardInfiniteState.cards.length || 0
+
+  if (adminBoardInfiniteState.isBackgroundLoading && total > 0) {
+    const loadingHtml = (typeof getBoardInlineLoadingHTML === "function")
+      ? getBoardInlineLoadingHTML(`Loading cards ${Math.min(displayed, total)}/${total}`)
+      : "Loading cards..."
+    progressEl.innerHTML = `${loadingHtml}`
+    return
+  }
+
+  if (total > 0) {
+    progressEl.textContent = `(${displayed} of ${total} cards displayed)`
+    return
+  }
+
+  progressEl.textContent = ""
+}
+
+const renderAdminBoardCardBatch = async (loadToken) => {
+  // Kakashi Note: Load token gates prevent old async work from mutating the board after a refresh or sort change.
+  if (loadToken !== adminBoardInfiniteState.loadToken) return
+  if (adminBoardInfiniteState.inFlight || adminBoardInfiniteState.complete) return
+  const cardsContainer = adminBoardInfiniteState.container
+  if (!cardsContainer || !document.body.contains(cardsContainer)) {
+    adminBoardInfiniteState.complete = true
+    adminBoardInfiniteState.inFlight = false
+    adminBoardInfiniteState.isBackgroundLoading = false
+    detachAdminBoardInfiniteScroll()
+    updateAdminBoardProgressText()
+    return
+  }
+
+  const start = adminBoardInfiniteState.cursor
+  const end = Math.min(start + ADMIN_SCROLL_BATCH_SIZE, adminBoardInfiniteState.cards.length)
+  if (start >= end) {
+    adminBoardInfiniteState.complete = true
+    adminBoardInfiniteState.isBackgroundLoading = false
+    updateAdminBoardProgressText()
+    return
+  }
+
+  const batch = adminBoardInfiniteState.cards.slice(start, end)
+  adminBoardInfiniteState.cursor = end
+  adminBoardInfiniteState.inFlight = true
+
+  // Kakashi Note: Insert skeletons first so users see immediate progress while encrypted payloads finalize.
+  for (const { card } of batch) {
+    if (loadToken !== adminBoardInfiniteState.loadToken) {
+      adminBoardInfiniteState.inFlight = false
+      return
+    }
+    const skeletonHTML = createEncryptedSkeletonCardHTML(card.identifier)
+    cardsContainer.insertAdjacentHTML("beforeend", skeletonHTML)
+  }
+
+  const finalizeTasks = batch.map(({ card, decryptedCardData }) => {
+    return async () => {
+      if (loadToken !== adminBoardInfiniteState.loadToken) return
+      try {
+        const encryptedCardPollPublisherPublicKey = await getPollPublisherPublicKey(decryptedCardData.poll)
+        const encryptedCardPublisherPublicKey = await getPublicKeyByName(card.name)
+        if (encryptedCardPollPublisherPublicKey !== encryptedCardPublisherPublicKey) {
+          console.warn(`QuickMythril cardPollHijack attack detected! Skipping card: ${card.identifier}`)
+          if (loadToken === adminBoardInfiniteState.loadToken) {
+            removeAdminBoardSkeleton(card.identifier)
+          }
+          return
+        }
+
+        const pollResults = await fetchPollResultsCached(decryptedCardData.poll)
+        if (pollResults?.error) {
+          if (loadToken === adminBoardInfiniteState.loadToken) {
+            removeAdminBoardSkeleton(card.identifier)
+          }
+          return
+        }
+
+        const encryptedCommentCount = await getEncryptedCommentCount(card.identifier)
+        const finalCardHTML = await createEncryptedCardHTML(
+          decryptedCardData,
+          pollResults,
+          card.identifier,
+          encryptedCommentCount,
+          adminBoardInfiniteState.sharedBoardData
+        )
+
+        if (loadToken !== adminBoardInfiniteState.loadToken) return
+        if (!finalCardHTML || finalCardHTML === "") {
+          removeAdminBoardSkeleton(card.identifier)
+          return
+        }
+        adminBoardInfiniteState.displayedCount += 1
+        updateAdminBoardProgressText()
+        replaceAdminBoardSkeleton(card.identifier, finalCardHTML)
+      } catch (error) {
+        console.error(`Error finalizing card ${card.identifier}:`, error)
+        if (loadToken === adminBoardInfiniteState.loadToken) {
+          removeAdminBoardSkeleton(card.identifier)
+        }
+      }
+    }
+  })
+
+  try {
+    await adminRunWithConcurrency(finalizeTasks, 6)
+  } finally {
+    adminBoardInfiniteState.inFlight = false
+  }
+
+  if (loadToken !== adminBoardInfiniteState.loadToken) return
+  if (adminBoardInfiniteState.cursor >= adminBoardInfiniteState.cards.length) {
+    adminBoardInfiniteState.complete = true
+    adminBoardInfiniteState.isBackgroundLoading = false
+  }
+  updateAdminBoardProgressText()
+}
+
 const extractEncryptedCardsMinterName = (cardIdentifier) => {
   const parts = cardIdentifier.split('-')
   // Ensure the format has at least 3 parts
@@ -271,104 +546,142 @@ const extractEncryptedCardsMinterName = (cardIdentifier) => {
   return minterName
 }
 
-const fetchAllEncryptedCards = async (isRefresh = false) => {
-  const encryptedCardsContainer = document.getElementById("encrypted-cards-container")
-  encryptedCardsContainer.innerHTML = "<p>Loading cards...</p>"
+const fetchAllEncryptedCards = async (forceSearch = false) => {
+  const loadToken = adminBoardInfiniteState.loadToken + 1
+  adminBoardInfiniteState.loadToken = loadToken
+  detachAdminBoardInfiniteScroll()
+  adminBoardInfiniteState.cards = []
+  adminBoardInfiniteState.cursor = 0
+  adminBoardInfiniteState.inFlight = false
+  adminBoardInfiniteState.complete = false
+  adminBoardInfiniteState.displayedCount = 0
+  adminBoardInfiniteState.totalCount = 0
+  adminBoardInfiniteState.isBackgroundLoading = false
+  adminBoardInfiniteState.progressEl = null
+  adminBoardInfiniteState.sharedBoardData = null
+  adminBoardInfiniteState.backgroundRunnerToken = 0
 
-  let afterTime = null
+  if (forceSearch) {
+    adminBoardDecryptedCardCache.clear()
+    if (typeof clearPollResultsCache === "function") {
+      clearPollResultsCache()
+    }
+  }
+
+  const encryptedCardsContainer = document.getElementById("encrypted-cards-container")
+  encryptedCardsContainer.innerHTML = getBoardLoadingHTML("Loading cards...")
+  adminBoardInfiniteState.container = encryptedCardsContainer
+  adminBoardInfiniteState.progressEl = document.getElementById("admin-board-progress")
+  updateAdminBoardProgressText()
+
+  let afterTime = 0
+  let dayRange = 0
   const timeRangeSelect = document.getElementById("time-range-select")
   if (timeRangeSelect) {
     const days = parseInt(timeRangeSelect.value, 10)
-    if (days > 0) {
+    dayRange = Number.isNaN(days) ? 0 : days
+    if (dayRange > 0) {
       const now = Date.now()
       const dayMs = 24 * 60 * 60 * 1000
-      afterTime = now - days * dayMs  // e.g. last X days
-      console.log(`afterTime for last ${days} days = ${new Date(afterTime).toLocaleString()}`)
+      afterTime = now - dayRange * dayMs  // e.g. last X days
+      console.log(`afterTime for last ${dayRange} days = ${new Date(afterTime).toLocaleString()}`)
     }
   }
 
   try {
-    const response = await searchSimple('MAIL_PRIVATE', `${encryptedCardIdentifierPrefix}`, '', 0, 0, '', false, true, afterTime)
+    const response = await fetchCachedAdminSearchResources(dayRange, afterTime, forceSearch)
+    if (loadToken !== adminBoardInfiniteState.loadToken) return
 
-    if (!response || !Array.isArray(response) || response.length === 0) {
+    if (!response || response.length === 0) {
+      adminBoardInfiniteState.isBackgroundLoading = false
+      adminBoardInfiniteState.totalCount = 0
+      updateAdminBoardProgressText()
       encryptedCardsContainer.innerHTML = "<p>No cards found.</p>"
       return
     }
 
-    // Validate and decrypt cards asynchronously
-    const validatedCards = await Promise.all(
-      response.map(async (card) => {
-        try {
-          // Validate the card identifier
-          const isValid = await validateEncryptedCardIdentifier(card)
-          if (!isValid) return null
+    // Validate/decrypt cards with bounded concurrency to reduce QDN load spikes.
+    const validationTasks = response.map((card) => async () => {
+      try {
+        // Validate the card identifier
+        const isValid = await validateEncryptedCardIdentifier(card)
+        if (!isValid) return null
 
-          // Fetch and decrypt the card data
-          const cardDataResponse = await qortalRequest({
-            action: "FETCH_QDN_RESOURCE",
-            name: card.name,
-            service: "MAIL_PRIVATE",
-            identifier: card.identifier,
-            encoding: "base64",
-          })
+        const decryptedCardData = await getDecryptedAdminCardCached(card)
+        if (!decryptedCardData) return null
 
-          if (!cardDataResponse) return null
+        // Skip cards without polls
+        if (!decryptedCardData.poll) return null
 
-          const decryptedCardData = await decryptAndParseObject(cardDataResponse)
-
-          // Skip cards without polls
-          if (!decryptedCardData.poll) return null
-
-          return { card, decryptedCardData }
-        } catch (error) {
-          console.warn(`Error processing card ${card.identifier}:`, error)
-          return null
-        }
-      })
-    )
+        return { card, decryptedCardData }
+      } catch (error) {
+        console.warn(`Error processing card ${card.identifier}:`, error)
+        return null
+      }
+    })
+    const validatedCards = await adminRunWithConcurrency(validationTasks, 8)
+    if (loadToken !== adminBoardInfiniteState.loadToken) return
 
     // Filter out invalid or skipped cards
     const validCardsWithData = validatedCards.filter((entry) => entry !== null)
 
     if (validCardsWithData.length === 0) {
+      adminBoardInfiniteState.isBackgroundLoading = false
+      adminBoardInfiniteState.totalCount = 0
+      updateAdminBoardProgressText()
       encryptedCardsContainer.innerHTML = "<p>No valid cards found.</p>"
       return
     }
 
-    // Combine `processCards` logic: Deduplicate cards by identifier and keep latest timestamp
+    const getCardTimestamp = (cardObj) => cardObj.updated || cardObj.created || 0
+    const isTopicCard = (cardData) => {
+      const topicFlag = Object.prototype.hasOwnProperty.call(cardData, 'topicMode')
+        ? cardData.topicMode
+        : cardData.isTopic
+      if (typeof topicFlag === 'boolean') {
+        return topicFlag
+      }
+      if (typeof topicFlag === 'string') {
+        return topicFlag.trim().toLowerCase() === 'true'
+      }
+      return false
+    }
+
+    // Kakashi Note: First pass dedupe keeps only the newest payload per exact identifier.
     const latestCardsMap = new Map()
-
     validCardsWithData.forEach(({ card, decryptedCardData }) => {
-      const timestamp = card.created || 0
-      const existingCard = latestCardsMap.get(card.identifier)
-
-      if (!existingCard || timestamp < (existingCard.card.updated || existingCard.card.created || 0)) {
+      const incomingTs = getCardTimestamp(card)
+      const existing = latestCardsMap.get(card.identifier)
+      const existingTs = existing ? getCardTimestamp(existing.card) : -1
+      if (!existing || incomingTs > existingTs) {
         latestCardsMap.set(card.identifier, { card, decryptedCardData })
-      } 
-
+      }
     })
-
     const uniqueValidCards = Array.from(latestCardsMap.values())
 
-    // Map to track the most recent card per minterName
+    // Kakashi Note: Second pass dedupe enforces one latest card per topic or minter identity bucket.
     const mostRecentCardsMap = new Map()
-
     uniqueValidCards.forEach(({ card, decryptedCardData }) => {
-      const obtainedMinterName = decryptedCardData.minterName
-      // Only check for cards that are NOT topic-based cards
-      if ((!decryptedCardData.isTopic) || decryptedCardData.isTopic === 'false') {
+      const topicCard = isTopicCard(decryptedCardData)
+      let dedupeKey
 
-        if (obtainedMinterName) {
-          const existingEntry = mostRecentCardsMap.get(obtainedMinterName)
-
-          if (!existingEntry) {
-            mostRecentCardsMap.set(obtainedMinterName, { card, decryptedCardData })
-          }
-        }
+      if (topicCard) {
+        // Topic cards should not overwrite each other by name.
+        dedupeKey = `topic::${card.identifier}`
       } else {
-        console.log(`topic card detected, skipping most recent by name mapping...`)
-        // We still need to add the topic-based cards to the map, as it will be utilized in the next step
-        mostRecentCardsMap.set(obtainedMinterName, {card, decryptedCardData})
+        const obtainedMinterName = decryptedCardData.minterName
+        if (!obtainedMinterName) {
+          console.warn(`Skipping non-topic card without minterName: ${card.identifier}`)
+          return
+        }
+        dedupeKey = `name::${obtainedMinterName}`
+      }
+
+      const incomingTs = getCardTimestamp(card)
+      const existing = mostRecentCardsMap.get(dedupeKey)
+      const existingTs = existing ? getCardTimestamp(existing.card) : -1
+      if (!existing || incomingTs > existingTs) {
+        mostRecentCardsMap.set(dedupeKey, { card, decryptedCardData })
       }
     })
 
@@ -379,6 +692,11 @@ const fetchAllEncryptedCards = async (isRefresh = false) => {
     const sortSelect = document.getElementById('sort-select')
     if (sortSelect) {
       selectedSort = sortSelect.value
+    }
+    const isVoteSort = selectedSort === 'least-votes' || selectedSort === 'most-votes'
+    if (isVoteSort) {
+      // Kakashi Note: Vote sorts are heavier, so show explicit status text while resorting completes.
+      encryptedCardsContainer.innerHTML = getBoardLoadingHTML("Loading and resorting cards by votes...")
     }
 
     if (selectedSort === 'name') {
@@ -410,7 +728,7 @@ const fetchAllEncryptedCards = async (isRefresh = false) => {
             finalCard._yesWeight = 0
             continue
           }
-          const pollResults = await fetchPollResults(pollName)
+          const pollResults = await fetchPollResultsCached(pollName)
           if (!pollResults || pollResults.error) {
             finalCard._adminTotalVotes = 0
             finalCard._yesWeight = 0
@@ -455,7 +773,7 @@ const fetchAllEncryptedCards = async (isRefresh = false) => {
             finalCard._yesWeight = 0
             continue
           }
-          const pollResults = await fetchPollResults(pollName)
+          const pollResults = await fetchPollResultsCached(pollName)
           if (!pollResults || pollResults.error) {
             finalCard._adminTotalVotes = 0
             finalCard._yesWeight = 0
@@ -494,6 +812,7 @@ const fetchAllEncryptedCards = async (isRefresh = false) => {
         return timestampB - timestampA;
       })
     }
+    if (loadToken !== adminBoardInfiniteState.loadToken) return
 
     encryptedCardsContainer.innerHTML = ""
 
@@ -520,55 +839,43 @@ const fetchAllEncryptedCards = async (isRefresh = false) => {
       return true
     })
     console.warn(`sharing current adminBoardState...`,adminBoardState)
-    // Display skeleton cards immediately
-    finalVisualFilterCards.forEach(({ card }) => {
-      const skeletonHTML = createSkeletonCardHTML(card.identifier)
-      encryptedCardsContainer.insertAdjacentHTML("beforeend", skeletonHTML)
-    }) 
+    if (!finalVisualFilterCards.length) {
+      adminBoardInfiniteState.isBackgroundLoading = false
+      adminBoardInfiniteState.totalCount = 0
+      updateAdminBoardProgressText()
+      encryptedCardsContainer.innerHTML = "<p>No cards found for selected filters.</p>"
+      return
+    }
 
-    // Fetch poll results and update each card
-    await Promise.all(
-      finalVisualFilterCards.map(async ({ card, decryptedCardData }) => {
-        try {
-          // Validate poll publisher keys
-          const encryptedCardPollPublisherPublicKey = await getPollPublisherPublicKey(decryptedCardData.poll)
-          const encryptedCardPublisherPublicKey = await getPublicKeyByName(card.name)
+    let sharedBoardData = null
+    if (finalVisualFilterCards.length > 0) {
+      const [kickBanTxData, minterGroupMembers, minterAdmins] = await Promise.all([
+        fetchAllKickBanTxData(),
+        fetchMinterGroupMembers(),
+        fetchMinterGroupAdmins(),
+      ])
+      sharedBoardData = {
+        kickBanTxData,
+        minterGroupMembers,
+        minterAdmins,
+      }
+    }
+    if (loadToken !== adminBoardInfiniteState.loadToken) return
 
-          if (encryptedCardPollPublisherPublicKey !== encryptedCardPublisherPublicKey) {
-            console.warn(`QuickMythril cardPollHijack attack detected! Skipping card: ${card.identifier}`)
-            removeSkeleton(card.identifier)
-            return
-          }
-
-          // Fetch poll results
-          const pollResults = await fetchPollResults(decryptedCardData.poll)
-
-          if (pollResults?.error) {
-            console.warn(`Skipping card with failed poll results: ${card.identifier}`)
-            removeSkeleton(card.identifier);
-            return;
-          }
-
-          const encryptedCommentCount = await getEncryptedCommentCount(card.identifier)
-
-          // Generate final card HTML
-          const finalCardHTML = await createEncryptedCardHTML(
-            decryptedCardData,
-            pollResults,
-            card.identifier,
-            encryptedCommentCount
-          )
-          if ((!finalCardHTML) || (finalCardHTML === '')){
-            removeSkeleton(card.identifier)
-          }
-          replaceSkeleton(card.identifier, finalCardHTML)
-        } catch (error) {
-          console.error(`Error finalizing card ${card.identifier}:`, error)
-          removeSkeleton(card.identifier)
-        }
-      })
-    )
+    encryptedCardsContainer.innerHTML = ""
+    adminBoardInfiniteState.cards = finalVisualFilterCards
+    adminBoardInfiniteState.sharedBoardData = sharedBoardData
+    adminBoardInfiniteState.cursor = 0
+    adminBoardInfiniteState.complete = false
+    adminBoardInfiniteState.displayedCount = 0
+    adminBoardInfiniteState.totalCount = finalVisualFilterCards.length
+    adminBoardInfiniteState.isBackgroundLoading = finalVisualFilterCards.length > 0
+    updateAdminBoardProgressText()
+    startAdminBoardBackgroundRender(loadToken)
   } catch (error) {
+    if (loadToken !== adminBoardInfiniteState.loadToken) return
+    adminBoardInfiniteState.isBackgroundLoading = false
+    updateAdminBoardProgressText()
     console.error("Error loading cards:", error)
     encryptedCardsContainer.innerHTML = "<p>Failed to load cards.</p>"
   }
@@ -897,6 +1204,10 @@ const displayEncryptedComments = async (cardIdentifier) => {
           const decryptedCommentData = await decryptAndParseObject(commentDataResponse)
           const timestampCheck = comment.updated || comment.created || 0
           const timestamp = await timestampToHumanReadableDate(timestampCheck)
+          // Kakashi Note: Encrypted comment fields are escaped before render to prevent markup injection in admin discussions.
+          const safeCommenter = qEscapeHtml(decryptedCommentData.creator)
+          const safeCommentContent = qEscapeHtml(decryptedCommentData.content).replace(/\n/g, '<br>')
+          const safeTimestamp = qEscapeHtml(timestamp)
 
           const commenter = decryptedCommentData.creator
           const voterInfo = voterMap.get(commenter)
@@ -919,11 +1230,11 @@ const displayEncryptedComments = async (cardIdentifier) => {
           return `
             <div class="comment" style="border: 1px solid gray; margin: 1vh 0; padding: 1vh; background: ${commentColor};">
               <p>
-                <strong><u>${decryptedCommentData.creator}</u></strong>
+                <strong><u>${safeCommenter}</u></strong>
                 ${adminBadge}
               </p>
-              <p>${decryptedCommentData.content}</p>
-              <p><i>${timestamp}</i></p>
+              <p>${safeCommentContent}</p>
+              <p><i>${safeTimestamp}</i></p>
             </div>
           `
         } catch (err) {
@@ -985,7 +1296,7 @@ const openLinkDisplayModal = async (link) => {
   const processedLink = await processQortalLinkForRendering(link) // Process the link to replace `qortal://` for rendering in modal
   const modal = document.getElementById('links-modal')
   const modalContent = document.getElementById('links-modalContent')
-  modalContent.src = processedLink // Set the iframe source to the link
+  modalContent.src = qSanitizeUrl(processedLink, '') // Set the iframe source to the link
   modal.style.display = 'block' // Show the modal
 }
 
@@ -1010,7 +1321,7 @@ const processQortalLinkForRendering = async (link) => {
       return `/render/${firstParam}${remainingPath}?theme=${themeColor}`
     }
   }
-  return link
+  return qSanitizeUrl(link, '')
 }
 
 const checkAndDisplayRemoveActions = async (adminYes, name, cardIdentifier, nameIsActuallyAddress = false) => {
@@ -1215,16 +1526,22 @@ const getNewestAdminCommentTimestamp = async (cardIdentifier) => {
 }
 
 // Create the overall Minter Card HTML -----------------------------------------------
-const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, commentCount) => {
+const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, commentCount, sharedBoardData = null) => {
   const { minterName, minterAddress = '', header, content, links, creator, timestamp, poll, topicMode } = cardData
   const formattedDate = new Date(timestamp).toLocaleString()
   const minterAvatar = !topicMode ? await getMinterAvatar(minterName) : null
   const creatorAvatar = await getMinterAvatar(creator)
+  // Kakashi Note: Render links through escaped data attributes and shared handlers to prevent untrusted inline injection.
   const linksHTML = links.map((link, index) => `
-    <button onclick="openLinkDisplayModal('${link}')">
-      ${`Link ${index + 1} - ${link}`}
+    <button data-link="${qEscapeAttr(link)}" onclick="openLinkDisplayModalFromButton(this)">
+      ${qEscapeHtml(`Link ${index + 1} - ${link}`)}
     </button>
   `).join("")
+  const safeMinterName = qEscapeHtml(minterName)
+  const safeCreator = qEscapeHtml(creator)
+  const safeHeader = qEscapeHtml(header)
+  const safeContent = qEscapeHtml(content).replace(/\n/g, '<br>')
+  const safeFormattedDate = qEscapeHtml(formattedDate)
   const showKickedBanned = document.getElementById('admin-show-kicked-banned-checkbox')?.checked ?? false
   const showHiddenAdminCards = document.getElementById('admin-show-hidden-checkbox')?.checked ?? false
 
@@ -1234,7 +1551,8 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
 
   let showTopic = false
 
-  const { finalKickTxs, pendingKickTxs, finalBanTxs, pendingBanTxs } = await fetchAllKickBanTxData() 
+  const kickBanTxData = sharedBoardData?.kickBanTxData || await fetchAllKickBanTxData()
+  const { finalKickTxs, pendingKickTxs, finalBanTxs, pendingBanTxs } = kickBanTxData
 
   if (hasTopicMode) {
     const modeVal = cardData.topicMode
@@ -1261,14 +1579,14 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
 
   const minterOrTopicHtml = ((showTopic) || (isUndefinedUser)) ? `
     <div class="support-header"><h5> REGARDING (Topic / Address): </h5></div>
-    <h3>${minterName}` :
+    <h3>${safeMinterName}` :
     `
     <div class="support-header"><h5> REGARDING (Name): </h5></div>
     ${minterAvatar}
-    <h3>${minterName}`
+    <h3>${safeMinterName}`
 
-  const minterGroupMembers = await fetchMinterGroupMembers()
-  const minterAdmins = await fetchMinterGroupAdmins()
+  const minterGroupMembers = sharedBoardData?.minterGroupMembers || await fetchMinterGroupMembers()
+  const minterAdmins = sharedBoardData?.minterAdmins || await fetchMinterGroupAdmins()
   const { adminYes = 0, adminNo = 0, minterYes = 0, minterNo = 0, totalYes = 0, totalNo = 0, totalYesWeight = 0, totalNoWeight = 0, detailsHtml, userVote = null } = await processPollData(pollResults, minterGroupMembers, minterAdmins, creator, cardIdentifier)
 
   createModal('links')
@@ -1361,13 +1679,13 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
     <div class="minter-card-header">
       <h2 class="support-header"> Created By: </h2>
       ${creatorAvatar}
-      <h2>${creator}</h2>
+      <h2>${safeCreator}</h2>
       ${minterOrTopicHtml}${levelText}
-      <p>${header}</p>
+      <p>${safeHeader}</p>
       ${penaltyText}${adjustmentText}${altText}
     </div>
     <div class="info">
-      ${content}
+      ${safeContent}
     </div>
     <div class="support-header"><h5>LINKS</h5></div>
     <div class="info-links">
@@ -1389,7 +1707,7 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
         <span class="minter-no">Denial Weight ${totalNoWeight}</span>
       </div>
     </div>
-    <div class="support-header"><h5>ACTIONS FOR</h5><h5 style="color: #ffae42;">${minterName}</h5>
+    <div class="support-header"><h5>ACTIONS FOR</h5><h5 style="color: #ffae42;">${safeMinterName}</h5>
     <p style="color: #c7c7c7; font-size: .65rem; margin-top: 1vh">(click COMMENTS button to open/close card comments)</p>
     </div>
     <div class="actions">
@@ -1404,8 +1722,7 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
       <textarea id="new-comment-${cardIdentifier}" placeholder="Input your comment..." style="width: 100%; margin-top: 10px;"></textarea>
       <button onclick="postEncryptedComment('${cardIdentifier}')">Post Comment</button>
     </div>
-    <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${creator} - ${formattedDate}</p>
+    <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${safeCreator} - ${safeFormattedDate}</p>
   </div>
   `
 }
-

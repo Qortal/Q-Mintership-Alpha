@@ -11,6 +11,10 @@ const nameInfoCache = new Map();  // name -> nameInfo
 const addressInfoCache = new Map(); // address -> addressInfo
 const pollResultsCache = new Map(); // pollName -> pollResults
 
+const clearPollResultsCache = () => {
+  pollResultsCache.clear()
+}
+
 if (typeof qortalRequest === 'function') {
     console.log('qortalRequest is available as a function. Setting development mode to false and baseUrl to nothing.')
     isOutsideOfUiDevelopment = false
@@ -822,6 +826,12 @@ const searchAllWithOffset = async (service, query, limit, offset, room) => {
 // NOTE - This function does a search and will return EITHER AN ARRAY OR A SINGLE OBJECT. if you want to guarantee a single object, pass 1 as limit. i.e. await searchSimple(service, identifier, "", 1) will return a single object.
 const searchSimple = async (service, identifier, name, limit=1500, offset=0, room='', reverse=true, prefixOnly=true, after=0) => {
     try {
+      // Kakashi Note: Normalize "no date filter" inputs to zero so cross-board time-range requests remain Core-compatible.
+      // Some callers pass null for "all dates"; normalize to 0 for Core API compatibility.
+      if (after === null || after === undefined || Number.isNaN(after)) {
+        after = 0
+      }
+
       let urlSuffix = `service=${service}&identifier=${identifier}&name=${name}&prefix=true&limit=${limit}&offset=${offset}&reverse=${reverse}&prefix=${prefixOnly}&after=${after}`
   
       if (name && !identifier && !room) {
@@ -1065,7 +1075,14 @@ const loadInLineImageHtml = async (service, name, identifier, filename, mimeType
         const decryptedBase64 = await decryptObject(data64)
         const base64 = isEncrypted ? decryptedBase64 : data64
         const objectUrl = base64ToBlobUrl(base64, mimeType)
-        const attachmentHtml = `<div class="attachment"><img src="${objectUrl}" alt="${filename}" class="inline-image"></div>`
+        // Kakashi Note: Escape filename before using it in alt text to prevent attribute injection in attachment previews.
+        const safeFilename = String(filename ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;')
+        const attachmentHtml = `<div class="attachment"><img src="${objectUrl}" alt="${safeFilename}" class="inline-image"></div>`
 
         return attachmentHtml
 

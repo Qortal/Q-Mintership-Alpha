@@ -1,7 +1,6 @@
-const Q_MINTERSHIP_VERSION = "1.22"
-
 const messageIdentifierPrefix = `mintership-forum-message`
 const messageAttachmentIdentifierPrefix = `mintership-forum-attachment`
+// Kakashi Note: Version label rendering is owned by index.html so release changes happen in one centralized location.
 
 // NOTE - SET adminGroups in QortalApi.js to enable admin access to forum for specific groups. Minter Admins will be fetched automatically.
 
@@ -69,9 +68,6 @@ if (localStorage.getItem("latestMessageIdentifiers")) {
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("DOMContentLoaded fired!")
   createScrollToTopButton()
-  document.querySelectorAll(".version").forEach(el => {
-    el.textContent = `Q-Mintership (v${Q_MINTERSHIP_VERSION}b)`
-})
 
   // --- GENERAL LINKS (MINTERSHIP-FORUM and MINTER-BOARD) ---
   const mintershipForumLinks = document.querySelectorAll('a[href="MINTERSHIP-FORUM"]')
@@ -978,20 +974,24 @@ const isMessageNew = (message, mostRecentMessage) => {
 const buildMessageHTML = async (message, fetchMessages, room, isNewMessage) => {
   const replyHtml = await buildReplyHtml(message, room)
   const attachmentHtml = await buildAttachmentHtml(message, room)
-  const avatarUrl = `/arbitrary/THUMBNAIL/${message.name}/qortal_avatar`
+  const avatarUrl = `/arbitrary/THUMBNAIL/${encodeURIComponent(message.name)}/qortal_avatar`
+  const safeName = qEscapeHtml(message.name)
+  const safeDate = qEscapeHtml(message.date)
+  // Kakashi Note: Forum messages are sanitized before render so rich text remains readable without allowing injected scripts.
+  const safeMessageContent = qSanitizeRichHtml(message.content)
 
   return `
     <div class="message-item" data-identifier="${message.identifier}">
       <div class="message-header" style="display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center;">
           <img src="${avatarUrl}" alt="Avatar" class="user-avatar" style="width: 30px; height: 30px; border-radius: 50%; margin-right: 10px;">
-          <span class="username">${message.name}</span>
+          <span class="username">${safeName}</span>
           ${isNewMessage ? `<span class="new-indicator" style="margin-left: 10px; color: red; font-weight: bold;">NEW</span>` : ''}
         </div>
-        <span class="timestamp">${message.date}</span>
+        <span class="timestamp">${safeDate}</span>
       </div>
       ${replyHtml}
-      <div class="message-text">${message.content}</div>
+      <div class="message-text">${safeMessageContent}</div>
       <div class="attachments-gallery">
         ${attachmentHtml}
       </div>
@@ -1017,13 +1017,16 @@ const buildReplyHtml = async (message, room) => {
     if (savedRepliedToMessage) {
       // We successfully processed the cached message
       console.log("Using saved message data for reply:", savedRepliedToMessage)
+      const safeReplyName = qEscapeHtml(savedRepliedToMessage.name)
+      const safeReplyDate = qEscapeHtml(savedRepliedToMessage.date)
+      const safeReplyContent = qSanitizeRichHtml(savedRepliedToMessage.content)
       return `
         <div class="reply-message" style="border-left: 2px solid #ccc; margin-bottom: 0.5vh; padding-left: 1vh;">
           <div class="reply-header">
-            In reply to: <span class="reply-username">${savedRepliedToMessage.name}</span>
-            <span class="reply-timestamp">${savedRepliedToMessage.date}</span>
+            In reply to: <span class="reply-username">${safeReplyName}</span>
+            <span class="reply-timestamp">${safeReplyDate}</span>
           </div>
-          <div class="reply-content">${savedRepliedToMessage.content}</div>
+          <div class="reply-content">${safeReplyContent}</div>
         </div>
       `
     } else {
@@ -1053,12 +1056,15 @@ const buildReplyHtml = async (message, room) => {
     storeMessageInMap(repliedMessage)
 
     // Return final HTML
+    const safeReplyName = qEscapeHtml(repliedMessage.name)
+    const safeReplyDate = qEscapeHtml(repliedMessage.date)
+    const safeReplyContent = qSanitizeRichHtml(repliedMessage.content)
     return `
       <div class="reply-message" style="border-left: 2px solid #ccc; margin-bottom: 0.5vh; padding-left: 1vh;">
         <div class="reply-header">
-          In reply to: <span class="reply-username">${repliedMessage.name}</span> <span class="reply-timestamp">${repliedMessage.date}</span>
+          In reply to: <span class="reply-username">${safeReplyName}</span> <span class="reply-timestamp">${safeReplyDate}</span>
         </div>
-        <div class="reply-content">${repliedMessage.content}</div>
+        <div class="reply-content">${safeReplyContent}</div>
       </div>
     `
   } catch (error) {
@@ -1084,13 +1090,26 @@ const buildAttachmentHtml = async (message, room) => {
 }
 
 const buildSingleAttachmentHtml = async (attachment, room) => {
+  // Kakashi Note: Attachment metadata is escaped and passed through data-* attributes for safe button handlers.
+  const safeService = qEscapeAttr(attachment.service)
+  const safeName = qEscapeAttr(attachment.name)
+  const safeIdentifier = qEscapeAttr(attachment.identifier)
+  const safeFilenameAttr = qEscapeAttr(attachment.filename)
+  const safeFilenameText = qEscapeHtml(attachment.filename)
+  const safeMimeType = qEscapeAttr(attachment.mimeType)
+
   if (room !== "admins" && attachment.mimeType && attachment.mimeType.startsWith('image/')) {
-    const imageUrl = `/arbitrary/${attachment.service}/${attachment.name}/${attachment.identifier}`
+    const imageUrl = `/arbitrary/${encodeURIComponent(attachment.service)}/${encodeURIComponent(attachment.name)}/${encodeURIComponent(attachment.identifier)}`
     return `
       <div class="attachment">
-        <img src="${imageUrl}" alt="${attachment.filename}" class="inline-image"/>
-        <button onclick="fetchAndSaveAttachment('${attachment.service}', '${attachment.name}', '${attachment.identifier}', '${attachment.filename}', '${attachment.mimeType}')">
-        Save ${attachment.filename}
+        <img src="${imageUrl}" alt="${safeFilenameAttr}" class="inline-image"/>
+        <button data-service="${safeService}"
+                data-name="${safeName}"
+                data-identifier="${safeIdentifier}"
+                data-filename="${safeFilenameAttr}"
+                data-mimetype="${safeMimeType}"
+                onclick="fetchAndSaveAttachmentFromButton(this)">
+        Save ${safeFilenameText}
         </button>
       </div>
     `
@@ -1105,8 +1124,13 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
     return `
       <div class="attachment">
         ${imageHtml}
-        <button onclick="fetchAndSaveAttachment('${attachment.service}', '${attachment.name}', '${attachment.identifier}', '${attachment.filename}', '${attachment.mimeType}')">
-          Save ${attachment.filename}
+        <button data-service="${safeService}"
+                data-name="${safeName}"
+                data-identifier="${safeIdentifier}"
+                data-filename="${safeFilenameAttr}"
+                data-mimetype="${safeMimeType}"
+                onclick="fetchAndSaveAttachmentFromButton(this)">
+          Save ${safeFilenameText}
         </button>
       </div>
     `
@@ -1114,12 +1138,27 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
   } else {
     return `
       <div class="attachment">
-        <button onclick="fetchAndSaveAttachment('${attachment.service}', '${attachment.name}', '${attachment.identifier}', '${attachment.filename}', '${attachment.mimeType}')">
-          Download ${attachment.filename}
+        <button data-service="${safeService}"
+                data-name="${safeName}"
+                data-identifier="${safeIdentifier}"
+                data-filename="${safeFilenameAttr}"
+                data-mimetype="${safeMimeType}"
+                onclick="fetchAndSaveAttachmentFromButton(this)">
+          Download ${safeFilenameText}
         </button>
       </div>
     `
   }
+}
+
+const fetchAndSaveAttachmentFromButton = (buttonEl) => {
+  if (!buttonEl) return
+  const service = buttonEl.dataset?.service || ''
+  const name = buttonEl.dataset?.name || ''
+  const identifier = buttonEl.dataset?.identifier || ''
+  const filename = buttonEl.dataset?.filename || ''
+  const mimeType = buttonEl.dataset?.mimetype || ''
+  fetchAndSaveAttachment(service, name, identifier, filename, mimeType)
 }
 
 const scrollToNewMessages = (firstNewMessageIdentifier) => {
@@ -1149,12 +1188,13 @@ const handleReplyLogic = (fetchMessages) => {
 
 const showReplyPreview = (repliedMessage) => {
   replyToMessageIdentifier = repliedMessage.identifier
+  const safeReplyPreview = qSanitizeRichHtml(repliedMessage.content)
 
   const replyContainer = document.createElement("div")
   replyContainer.className = "reply-container"
   replyContainer.innerHTML = `
     <div class="reply-preview" style="border: 1px solid #ccc; padding: 1vh; margin-bottom: 1vh; background-color: black; color: white;">
-      <strong>Replying to:</strong> ${repliedMessage.content}
+      <strong>Replying to:</strong> ${safeReplyPreview}
       <button id="cancel-reply" style="float: right; color: red; background-color: black; font-weight: bold;">Cancel</button>
     </div>
   `
@@ -1255,4 +1295,3 @@ function startPollingForNewMessages() {
     }
   }, 40000)
 }
-

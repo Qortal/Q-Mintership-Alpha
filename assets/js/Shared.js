@@ -1,6 +1,181 @@
 // This is a Helper Script that will contain the functions that are accessed from multiple different scripts in the app. Allowing this script to be loaded first, will ensure they all have awareness of them and will allow future development to be simpler.
 
 let blockedNamesIdentifier = 'Q-Mintership-blockedNames'
+
+// Kakashi Note: Core escaping helper used across boards to keep untrusted text from executing as markup.
+// Basic output-encoding helper for untrusted text that will be inserted into HTML strings.
+const qEscapeHtml = (value) => {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Attribute-safe variant. Also escapes backticks to avoid template literal edge cases.
+const qEscapeAttr = (value) => {
+  return qEscapeHtml(value).replace(/`/g, '&#96;')
+}
+
+const qIsSafeUrl = (url) => {
+  const raw = String(url ?? '').trim()
+  if (!raw) return false
+  const lower = raw.toLowerCase()
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) {
+    return false
+  }
+  if (lower.startsWith('qortal://')) return true
+  if (lower.startsWith('/')) return true
+  if (lower.startsWith('./') || lower.startsWith('../')) return true
+  if (lower.startsWith('#')) return true
+  if (lower.startsWith('http://') || lower.startsWith('https://')) return true
+  if (lower.startsWith('mailto:')) return true
+  return false
+}
+
+const qSanitizeUrl = (url, fallback = '#') => {
+  const safe = String(url ?? '').trim()
+  return qIsSafeUrl(safe) ? safe : fallback
+}
+
+const Q_RICH_TEXT_ALLOWED_TAGS = new Set([
+  'A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DIV', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'I', 'LI', 'OL', 'P', 'PRE', 'S', 'SPAN', 'STRONG', 'U', 'UL'
+])
+
+const Q_RICH_TEXT_ALLOWED_ATTRS = new Map([
+  ['*', new Set(['class'])],
+  ['A', new Set(['href', 'target', 'rel'])]
+])
+
+const qSanitizeRichHtml = (inputHtml) => {
+  // Kakashi Note: Rich-text sanitizer strips dangerous tags/attrs while preserving safe formatting needed for forum content.
+  const template = document.createElement('template')
+  template.innerHTML = String(inputHtml ?? '')
+
+  const dangerousTags = new Set([
+    'BASE', 'FORM', 'IFRAME', 'INPUT', 'LINK', 'META', 'OBJECT', 'EMBED', 'SCRIPT',
+    'STYLE', 'SVG', 'MATH', 'TEXTAREA', 'SELECT', 'BUTTON', 'OPTION'
+  ])
+
+  const sanitizeNode = (rootNode) => {
+    const children = Array.from(rootNode.childNodes)
+
+    for (const child of children) {
+      if (child.nodeType === Node.COMMENT_NODE) {
+        child.remove()
+        continue
+      }
+
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        continue
+      }
+
+      const tag = child.tagName.toUpperCase()
+
+      if (dangerousTags.has(tag)) {
+        child.remove()
+        continue
+      }
+
+      if (!Q_RICH_TEXT_ALLOWED_TAGS.has(tag)) {
+        const fragment = document.createDocumentFragment()
+        while (child.firstChild) {
+          fragment.appendChild(child.firstChild)
+        }
+        child.replaceWith(fragment)
+        sanitizeNode(fragment)
+        continue
+      }
+
+      const allowedForTag = Q_RICH_TEXT_ALLOWED_ATTRS.get(tag) || new Set()
+      const allowedGlobal = Q_RICH_TEXT_ALLOWED_ATTRS.get('*') || new Set()
+
+      for (const attr of Array.from(child.attributes)) {
+        const attrName = attr.name.toLowerCase()
+
+        if (attrName.startsWith('on') || attrName === 'style') {
+          child.removeAttribute(attr.name)
+          continue
+        }
+
+        const attrAllowed = allowedForTag.has(attrName) || allowedGlobal.has(attrName)
+        if (!attrAllowed) {
+          child.removeAttribute(attr.name)
+          continue
+        }
+
+        if (attrName === 'href' || attrName === 'src') {
+          const safeUrl = qSanitizeUrl(attr.value, '')
+          if (!safeUrl) {
+            child.removeAttribute(attr.name)
+          } else {
+            child.setAttribute(attr.name, safeUrl)
+          }
+        }
+      }
+
+      if (tag === 'A') {
+        const href = child.getAttribute('href')
+        if (!href) {
+          child.removeAttribute('target')
+          child.removeAttribute('rel')
+        } else {
+          const target = child.getAttribute('target')
+          if (target && target !== '_blank') {
+            child.removeAttribute('target')
+          }
+          child.setAttribute('rel', 'noopener noreferrer')
+        }
+      }
+
+      sanitizeNode(child)
+    }
+  }
+
+  sanitizeNode(template.content)
+  return template.innerHTML
+}
+
+// Kakashi Note: Shared button handlers read escaped data-* values to avoid passing untrusted strings through inline JS.
+// Use data-link on buttons and pass only element refs to handlers to prevent inline JS injection.
+const openLinksModalFromButton = (buttonEl) => {
+  if (!buttonEl) return
+  const rawLink = buttonEl.dataset?.link || ''
+  if (typeof openLinksModal === 'function') {
+    openLinksModal(rawLink)
+  }
+}
+
+const openLinkDisplayModalFromButton = (buttonEl) => {
+  if (!buttonEl) return
+  const rawLink = buttonEl.dataset?.link || ''
+  if (typeof openLinkDisplayModal === 'function') {
+    openLinkDisplayModal(rawLink)
+  }
+}
+
+const getBoardLoadingHTML = (message = "Loading cards...") => {
+  const safeMessage = qEscapeHtml(message)
+  return `
+    <div class="board-loading" role="status" aria-live="polite" aria-busy="true">
+      <div class="board-loading-spinner" aria-hidden="true"></div>
+      <p>${safeMessage}</p>
+    </div>
+  `
+}
+
+const getBoardInlineLoadingHTML = (message = "Loading cards...") => {
+  const safeMessage = qEscapeHtml(message)
+  return `
+    <span class="board-loading-inline" role="status" aria-live="polite" aria-busy="true">
+      <span class="board-loading-spinner board-loading-spinner-inline" aria-hidden="true"></span>
+      <span>${safeMessage}</span>
+    </span>
+  `
+}
+
 const fetchBlockList = async () => {
     try {
       // searchSimple to find all resources for that identifier

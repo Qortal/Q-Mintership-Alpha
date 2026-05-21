@@ -175,9 +175,10 @@ const displayBlockList = (blockedNames) => {
     blocklistDisplay.innerHTML = "<p>No blocked users currently.</p>"
     return
   }
+  // Kakashi Note: Block-list entries are escaped before rendering so stored names cannot inject markup into admin tools.
   blocklistDisplay.innerHTML = `
     <ul>
-      ${blockedNames.map(name => `<li>${name}</li>`).join("")}
+      ${blockedNames.map(name => `<li>${qEscapeHtml(name)}</li>`).join("")}
     </ul>
   `
 }
@@ -248,6 +249,34 @@ const displayPendingInviteDetails = async (pendingInvites) => {
     return
   }
 
+  let approvalSearchResults = []
+  // Kakashi Note: Defensive handling avoids Admin Tools crashes when approval history fetch fails.
+  try {
+    approvalSearchResults = await searchTransactions({
+      txTypes: ['GROUP_APPROVAL'],
+      confirmationStatus: 'CONFIRMED',
+      limit: 0,
+      reverse: false,
+      offset: 0,
+      startBlock: 1990000,
+      blockLimit: 0,
+      txGroupId: 0
+    })
+  } catch (err) {
+    console.warn("Failed to load approval transactions for pending invites:", err)
+    approvalSearchResults = []
+  }
+
+  const approvalsByPendingSignature = new Map()
+  for (const approvalTx of approvalSearchResults) {
+    const pendingSig = approvalTx.pendingSignature
+    if (!pendingSig) continue
+    if (!approvalsByPendingSignature.has(pendingSig)) {
+      approvalsByPendingSignature.set(pendingSig, [])
+    }
+    approvalsByPendingSignature.get(pendingSig).push(approvalTx)
+  }
+
   let html = `<h4>Current Pending Invites:</h4><div class="pending-invites-list">`
 
   for (const inviteTx of pendingInvites) {
@@ -255,7 +284,7 @@ const displayPendingInviteDetails = async (pendingInvites) => {
     const dateStr = new Date(inviteTx.timestamp).toLocaleString()
     let inviteeName = ""
     const txSig = inviteTx.signature
-    const creatorName = await getNameFromAddress(inviteTx.creatorAddress) 
+    let creatorName = await getNameFromAddress(inviteTx.creatorAddress) 
     if (!creatorName) {
       creatorName = inviteTx.creatorAddress
     }
@@ -270,31 +299,19 @@ const displayPendingInviteDetails = async (pendingInvites) => {
       inviteeName = inviteeAddress // fallback if getName fails
     }
 
-    const approvalSearchResults = await searchTransactions({
-      txTypes: ['GROUP_APPROVAL'],
-      confirmationStatus: 'CONFIRMED',
-      limit: 0,
-      reverse: false,
-      offset: 0,
-      startBlock: 1990000,
-      blockLimit: 0,
-      txGroupId: 0 
-    })
-
-    const approvals = approvalSearchResults.filter(
-      (approvalTx) => approvalTx.pendingSignature === txSig
-    )
+    const approvals = approvalsByPendingSignature.get(txSig) || []
     
     const { tableHtml, approvalCount = approvals.length } = await buildApprovalTableHtml(approvals, getNameFromAddress)
     const finalTable = approvals.length > 0 ? tableHtml : "<p>No Approvals Found</p>"
     
+    // Kakashi Note: Invite values are escaped before insertion to prevent UI injection from transaction fields.
     html += `
       <div class="invite-item">
         <div class="invite-top-row">
-          <span><strong>Invite Tx</strong>:<p style="color:lightblue"> ${inviteTx.signature.slice(0, 8)}...</p></span>
-          <span> <strong>Invitee</strong>:<p style="color:lightblue"> ${inviteeName}</p></span>
-          <span> <strong>Date</strong>:<p style="color:lightblue"> ${dateStr}</p></span>
-          <span> <strong>CreatorName</strong>:<p style="color:lightblue"> ${creatorName}</p></span>
+          <span><strong>Invite Tx</strong>:<p style="color:lightblue"> ${qEscapeHtml(inviteTx.signature.slice(0, 8))}...</p></span>
+          <span> <strong>Invitee</strong>:<p style="color:lightblue"> ${qEscapeHtml(inviteeName)}</p></span>
+          <span> <strong>Date</strong>:<p style="color:lightblue"> ${qEscapeHtml(dateStr)}</p></span>
+          <span> <strong>CreatorName</strong>:<p style="color:lightblue"> ${qEscapeHtml(creatorName)}</p></span>
           <span> <strong>Total Approvals</strong>:<p style="color:lightblue"> ${approvalCount}</p></span>
           
         </div>
@@ -316,5 +333,3 @@ const displayPendingInviteDetails = async (pendingInvites) => {
   html += "</div>"
   invitesContainer.innerHTML = html
 }
-
-

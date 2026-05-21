@@ -1,4 +1,3 @@
-
 let minterGroupAddresses
 let minterAdminAddresses
 let isTest = false
@@ -8,12 +7,12 @@ const addRemoveIdentifierPrefix = "QM-AR-card"
 const AR_TX_CACHE_TTL_MS = 30000
 let arTxCache = {
   timestamp: 0,
-  data: null
+  data: null,
 }
 
 const getAllARTxDataCached = async (force = false) => {
   const now = Date.now()
-  const isStale = (now - arTxCache.timestamp) > AR_TX_CACHE_TTL_MS
+  const isStale = now - arTxCache.timestamp > AR_TX_CACHE_TTL_MS
   if (force || !arTxCache.data || isStale) {
     arTxCache.data = await fetchAllARTxData()
     arTxCache.timestamp = now
@@ -22,29 +21,29 @@ const getAllARTxDataCached = async (force = false) => {
 }
 
 const loadAddRemoveAdminPage = async () => {
-    // Kakashi Note: Clear other board scroll listeners before loading this board to prevent duplicate lazy-load callbacks.
-    if (typeof detachAdminBoardInfiniteScroll === "function") {
-        detachAdminBoardInfiniteScroll()
-    }
-    if (typeof detachMinterBoardInfiniteScroll === "function") {
-        detachMinterBoardInfiniteScroll()
-    }
+  // Kakashi Note: Clear other board scroll listeners before loading this board to prevent duplicate lazy-load callbacks.
+  if (typeof detachAdminBoardInfiniteScroll === "function") {
+    detachAdminBoardInfiniteScroll()
+  }
+  if (typeof detachMinterBoardInfiniteScroll === "function") {
+    detachMinterBoardInfiniteScroll()
+  }
 
-    console.log("Loading Add/Remove Admin page...")
-    const bodyChildren = document.body.children
+  console.log("Loading Add/Remove Admin page...")
+  const bodyChildren = document.body.children
 
-    for (let i = bodyChildren.length - 1; i >= 0; i--) {
-        const child = bodyChildren[i]
-        
-        if (!child.classList.contains("menu")) {
-            child.remove()
-        }
+  for (let i = bodyChildren.length - 1; i >= 0; i--) {
+    const child = bodyChildren[i]
+
+    if (!child.classList.contains("menu")) {
+      child.remove()
     }
+  }
 
-    const mainContainer = document.createElement("div")
-    mainContainer.className = "add-remove-admin-main"
-    mainContainer.style = "padding: 20px; text-align: center;"
-    mainContainer.innerHTML = `
+  const mainContainer = document.createElement("div")
+  mainContainer.className = "add-remove-admin-main"
+  mainContainer.style = "padding: 20px; text-align: center;"
+  mainContainer.innerHTML = `
         <h1 style="color: lightblue;">Minter Admin Management</h1>
         <p style="font-size:0.95rem; color: white;">
             This page allows proposing the promotion of an existing minter to admin, 
@@ -99,175 +98,189 @@ const loadAddRemoveAdminPage = async () => {
         
     `
 
-    document.body.appendChild(mainContainer)
-   
-    document.getElementById("propose-promotion-button").addEventListener("click", async () => {
-        try {
-            // Show the form
-            const publishCardView = document.getElementById("promotion-form-container")
-            publishCardView.style.display = 'flex'
-            // publishCardView.style.display === "none" ? "flex" : "none"
-            // document.getElementById("existing-proposals-section").style.display = "none"
-            const proposeButton = document.getElementById('propose-promotion-button')
-            proposeButton.style.display = 'none'
-            // proposeButton.style.display === 'flex' ? 'none' : 'flex'
-            
-        } catch (error) {
-            console.error("Error opening propose form", error)
-            alert("Failed to open proposal form. Please try again.")
-        }
-        })
+  document.body.appendChild(mainContainer)
 
-    document.getElementById("refresh-cards-button").addEventListener("click", async () => {
-        const cardsContainer = document.getElementById("cards-container")
-        cardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
-        await initializeCachedGroups()
-        await getAllARTxDataCached(true)
-        await loadCards(addRemoveIdentifierPrefix, true)
-    })
-
-    document.getElementById("cancel-publish-button").addEventListener("click", async () => {
-        // const cardsContainer = document.getElementById("existing-proposals-section")
-        // cardsContainer.style.display = "flex" // Restore visibility
-        const publishCardView = document.getElementById("promotion-form-container")
-        publishCardView.style.display = "none" // Hide the publish form
-        const proposeButton = document.getElementById('propose-promotion-button')
-        proposeButton.style.display = 'flex'
+  document
+    .getElementById("propose-promotion-button")
+    .addEventListener("click", async () => {
+      try {
+        // Show the form
+        const publishCardView = document.getElementById(
+          "promotion-form-container"
+        )
+        publishCardView.style.display = "flex"
+        // publishCardView.style.display === "none" ? "flex" : "none"
+        // document.getElementById("existing-proposals-section").style.display = "none"
+        const proposeButton = document.getElementById(
+          "propose-promotion-button"
+        )
+        proposeButton.style.display = "none"
         // proposeButton.style.display === 'flex' ? 'none' : 'flex'
+      } catch (error) {
+        console.error("Error opening propose form", error)
+        alert("Failed to open proposal form. Please try again.")
+      }
     })
 
-    document.getElementById("add-link-button").addEventListener("click", async () => {
-        const linksContainer = document.getElementById("links-container")
-        const newLinkInput = document.createElement("input")
-        newLinkInput.type = "text"
-        newLinkInput.className = "card-link"
-        newLinkInput.placeholder = "Enter QDN link"
-        linksContainer.appendChild(newLinkInput)
+  document
+    .getElementById("refresh-cards-button")
+    .addEventListener("click", async () => {
+      const cardsContainer = document.getElementById("cards-container")
+      cardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
+      await initializeCachedGroups()
+      await getAllARTxDataCached(true)
+      await loadCards(addRemoveIdentifierPrefix, true)
     })
 
-    const timeRangeSelectCheckbox = document.getElementById('time-range-select')
-    if (timeRangeSelectCheckbox) {
-        timeRangeSelectCheckbox.addEventListener('change', async (event) => {
-        await loadCards(addRemoveIdentifierPrefix)
-        })
-    }
-
-    document.getElementById("publish-card-form").addEventListener("submit", async (event) => {
-        event.preventDefault()
-        await publishARCard(addRemoveIdentifierPrefix)
+  document
+    .getElementById("cancel-publish-button")
+    .addEventListener("click", async () => {
+      // const cardsContainer = document.getElementById("existing-proposals-section")
+      // cardsContainer.style.display = "flex" // Restore visibility
+      const publishCardView = document.getElementById(
+        "promotion-form-container"
+      )
+      publishCardView.style.display = "none" // Hide the publish form
+      const proposeButton = document.getElementById("propose-promotion-button")
+      proposeButton.style.display = "flex"
+      // proposeButton.style.display === 'flex' ? 'none' : 'flex'
     })
-    await featureTriggerCheck()
-    await getAllARTxDataCached(true)
-    await loadCards(addRemoveIdentifierPrefix)
-    await displayExistingMinterAdmins()
+
+  document
+    .getElementById("add-link-button")
+    .addEventListener("click", async () => {
+      const linksContainer = document.getElementById("links-container")
+      const newLinkInput = document.createElement("input")
+      newLinkInput.type = "text"
+      newLinkInput.className = "card-link"
+      newLinkInput.placeholder = "Enter QDN link"
+      linksContainer.appendChild(newLinkInput)
+    })
+
+  const timeRangeSelectCheckbox = document.getElementById("time-range-select")
+  if (timeRangeSelectCheckbox) {
+    timeRangeSelectCheckbox.addEventListener("change", async (event) => {
+      await loadCards(addRemoveIdentifierPrefix)
+    })
+  }
+
+  document
+    .getElementById("publish-card-form")
+    .addEventListener("submit", async (event) => {
+      event.preventDefault()
+      await publishARCard(addRemoveIdentifierPrefix)
+    })
+  await featureTriggerCheck()
+  await getAllARTxDataCached(true)
+  await loadCards(addRemoveIdentifierPrefix)
+  await displayExistingMinterAdmins()
 }
 
 const toggleProposeButton = () => {
-    const proposeButton = document.getElementById('propose-promotion-button')
-    proposeButton.style.display = 
-    proposeButton.style.display === 'flex' ? 'none' : 'flex'
+  const proposeButton = document.getElementById("propose-promotion-button")
+  proposeButton.style.display =
+    proposeButton.style.display === "flex" ? "none" : "flex"
 }
 
 const fetchAllARTxData = async () => {
-    const addAdmTx = "ADD_GROUP_ADMIN"
-    const remAdmTx = "REMOVE_GROUP_ADMIN"
+  const addAdmTx = "ADD_GROUP_ADMIN"
+  const remAdmTx = "REMOVE_GROUP_ADMIN"
 
-    const allAddTxs = await searchTransactions({
-        txTypes: [addAdmTx],
-        confirmationStatus: 'CONFIRMED',
-        limit: 0,
-        reverse: true,
-        offset: 0,
-        startBlock: 1990000,
-        blockLimit: 0,
-        txGroupId: 694,
-      })
-  
-      const allRemTxs = await searchTransactions({
-        txTypes: [remAdmTx],
-        confirmationStatus: 'CONFIRMED',
-        limit: 0,
-        reverse: true,
-        offset: 0,
-        startBlock: 1990000,
-        blockLimit: 0,
-        txGroupId: 694,
-      })
+  const allAddTxs = await searchTransactions({
+    txTypes: [addAdmTx],
+    confirmationStatus: "CONFIRMED",
+    limit: 0,
+    reverse: true,
+    offset: 0,
+    startBlock: 1990000,
+    blockLimit: 0,
+    txGroupId: 694,
+  })
 
-    const { finalAddTxs, pendingAddTxs, expiredAddTxs } = partitionAddTransactions(allAddTxs)
-    const { finalRemTxs, pendingRemTxs, expiredRemTxs } = partitionRemoveTransactions(allRemTxs)
-  
-    // We are going to keep all transactions in order to filter more accurately for display purposes.
-    console.log('Final addAdminTxs:', finalAddTxs)
-    console.log('Pending addAdminTxs:', pendingAddTxs)
-    console.log('expired addAdminTxs', expiredAddTxs)
-    console.log('Final remAdminTxs:', finalRemTxs)
-    console.log('Pending remAdminTxs:', pendingRemTxs)
-    console.log('expired remAdminTxs', expiredRemTxs)
-  
-    return {
-      finalAddTxs,
-      pendingAddTxs,
-      expiredAddTxs,
-      finalRemTxs,
-      pendingRemTxs,
-      expiredRemTxs
-    }
+  const allRemTxs = await searchTransactions({
+    txTypes: [remAdmTx],
+    confirmationStatus: "CONFIRMED",
+    limit: 0,
+    reverse: true,
+    offset: 0,
+    startBlock: 1990000,
+    blockLimit: 0,
+    txGroupId: 694,
+  })
+
+  const { finalAddTxs, pendingAddTxs, expiredAddTxs } =
+    partitionAddTransactions(allAddTxs)
+  const { finalRemTxs, pendingRemTxs, expiredRemTxs } =
+    partitionRemoveTransactions(allRemTxs)
+
+  // We are going to keep all transactions in order to filter more accurately for display purposes.
+  console.log("Final addAdminTxs:", finalAddTxs)
+  console.log("Pending addAdminTxs:", pendingAddTxs)
+  console.log("expired addAdminTxs", expiredAddTxs)
+  console.log("Final remAdminTxs:", finalRemTxs)
+  console.log("Pending remAdminTxs:", pendingRemTxs)
+  console.log("expired remAdminTxs", expiredRemTxs)
+
+  return {
+    finalAddTxs,
+    pendingAddTxs,
+    expiredAddTxs,
+    finalRemTxs,
+    pendingRemTxs,
+    expiredRemTxs,
+  }
 }
-  
+
 const partitionAddTransactions = (rawTransactions) => {
   const finalAddTxs = []
   const pendingAddTxs = []
   const expiredAddTxs = []
 
   for (const tx of rawTransactions) {
-    if (tx.approvalStatus === 'PENDING') {
+    if (tx.approvalStatus === "PENDING") {
       pendingAddTxs.push(tx)
-    }
-    else if (tx.approvalStatus === 'EXPIRED'){
+    } else if (tx.approvalStatus === "EXPIRED") {
       expiredAddTxs.push(tx)
     } else {
       finalAddTxs.push(tx)
     }
   }
 
-  return { finalAddTxs, pendingAddTxs, expiredAddTxs };
+  return { finalAddTxs, pendingAddTxs, expiredAddTxs }
 }
-  
+
 const partitionRemoveTransactions = (rawTransactions) => {
   const finalRemTxs = []
   const pendingRemTxs = []
   const expiredRemTxs = []
 
   for (const tx of rawTransactions) {
-      if (tx.approvalStatus === 'PENDING') {
-        pendingRemTxs.push(tx)
-      }
-      else if (tx.approvalStatus === 'EXPIRED'){
-        expiredRemTxs.push(tx)
-      } else {
-        finalRemTxs.push(tx)
-      }
+    if (tx.approvalStatus === "PENDING") {
+      pendingRemTxs.push(tx)
+    } else if (tx.approvalStatus === "EXPIRED") {
+      expiredRemTxs.push(tx)
+    } else {
+      finalRemTxs.push(tx)
+    }
   }
 
   return { finalRemTxs, pendingRemTxs, expiredRemTxs }
 }
-  
 
 const displayExistingMinterAdmins = async () => {
-    const adminListContainer = document.getElementById("admin-list-container")
-    adminListContainer.innerHTML =
-        "<p style='color: #999; font-size: 1.1rem;'>Loading existing admins...</p>"
+  const adminListContainer = document.getElementById("admin-list-container")
+  adminListContainer.innerHTML =
+    "<p style='color: #999; font-size: 1.1rem;'>Loading existing admins...</p>"
 
-    try {
-        // 1) Fetch addresses
-        const admins = await fetchMinterGroupAdmins()
-        minterAdminAddresses = admins.map(m => m.member)
-        let rowsHtml = "";
-        for (const adminAddr of admins) {
-            if (adminAddr.member === nullAddress) {
-                // Display a "NULL ACCOUNT" row
-                rowsHtml += `
+  try {
+    // 1) Fetch addresses
+    const admins = await fetchMinterGroupAdmins()
+    minterAdminAddresses = admins.map((m) => m.member)
+    let rowsHtml = ""
+    for (const adminAddr of admins) {
+      if (adminAddr.member === nullAddress) {
+        // Display a "NULL ACCOUNT" row
+        rowsHtml += `
                   <tr>
                     <td style="border: 1px solid #ccc; padding: 4px; color: #aaa;">
                       NULL ACCOUNT
@@ -281,18 +294,19 @@ const displayExistingMinterAdmins = async () => {
                     </td>
                   </tr>
                 `
-                continue
-              }
-            // Attempt to get name
-            let adminName
-            try {
-                adminName = await getNameFromAddress(adminAddr.member)
-            } catch (err) {
-                console.warn(`Error fetching name for ${adminAddr.member}:`, err)
-                adminName = null
-            }
-            const displayName = adminName && adminName !== adminAddr.member ? adminName : "(No Name)"
-            rowsHtml += `
+        continue
+      }
+      // Attempt to get name
+      let adminName
+      try {
+        adminName = await getNameFromAddress(adminAddr.member)
+      } catch (err) {
+        console.warn(`Error fetching name for ${adminAddr.member}:`, err)
+        adminName = null
+      }
+      const displayName =
+        adminName && adminName !== adminAddr.member ? adminName : "(No Name)"
+      rowsHtml += `
                 <tr>
                 <td style="border: 1px solid rgb(150, 199, 224); font-size: 1.5rem; padding: 4px; color:rgb(70, 156, 196)">${displayName}</td>
                 <td style="border: 1px solid rgb(106, 203, 179); font-size: 1rem; padding: 4px; color:rgb(120, 150, 163);">${adminAddr.member}</td>
@@ -306,9 +320,9 @@ const displayExistingMinterAdmins = async () => {
                 </td>
                 </tr>
             `
-        }
-        // 3) Build the table
-        const tableHtml = `
+    }
+    // 3) Build the table
+    const tableHtml = `
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background:rgb(21, 36, 18); color:rgb(183, 208, 173); font-size: 1.5rem;">
@@ -322,332 +336,387 @@ const displayExistingMinterAdmins = async () => {
                 </tbody>
             </table>
         `
-        adminListContainer.innerHTML = tableHtml
-    } catch (err) {
-        console.error("Error fetching minter admins:", err)
-        adminListContainer.innerHTML =
-        "<p style='color: red;'>Failed to load admins.</p>"
-    }
+    adminListContainer.innerHTML = tableHtml
+  } catch (err) {
+    console.error("Error fetching minter admins:", err)
+    adminListContainer.innerHTML =
+      "<p style='color: red;'>Failed to load admins.</p>"
+  }
 }
 
 const handleProposeDemotionWrapper = (adminName, adminAddress) => {
-    // Call the async function and handle any unhandled rejections
-    handleProposeDemotion(adminName, adminAddress).catch(error => {
-      console.error(`Error in handleProposeDemotionWrapper:`, error)
-      alert("An unexpected error occurred. Please try again.")
-    })
-  }
+  // Call the async function and handle any unhandled rejections
+  handleProposeDemotion(adminName, adminAddress).catch((error) => {
+    console.error(`Error in handleProposeDemotionWrapper:`, error)
+    alert("An unexpected error occurred. Please try again.")
+  })
+}
 
 const handleProposeDemotion = async (adminName, adminAddress) => {
-    console.log(`Proposing demotion for: ${adminName} (${adminAddress})`)
-    const proposeButton = document.getElementById('propose-promotion-button')
-    proposeButton.style.display = 'none'
-    const fetchedCard = await fetchExistingARCard(addRemoveIdentifierPrefix, adminName)
+  console.log(`Proposing demotion for: ${adminName} (${adminAddress})`)
+  const proposeButton = document.getElementById("propose-promotion-button")
+  proposeButton.style.display = "none"
+  const fetchedCard = await fetchExistingARCard(
+    addRemoveIdentifierPrefix,
+    adminName
+  )
 
-        if (fetchedCard) {
-            alert("A card already exists. Publishing of multiple cards is not allowed. Please update your card.")
-            isExistingCard = true
-            await loadCardIntoForm(fetchedCard)
-        }
-    // Populate the form with the admin's name
-    const nameInput = document.getElementById("minter-name-input")
-    nameInput.value = adminName
-  
-    // Display the form if it's hidden
-    const formContainer = document.getElementById("promotion-form-container")
-    formContainer.style.display = "flex"
-  
-    // Optionally hide other sections (e.g., the existing proposals section)
-    // const proposalsSection = document.getElementById("existing-proposals-section")
-    // proposalsSection.style.display = "none"
-  
-    // Notify the user to fill out the rest
-    alert(`Admin "${adminName}" has been selected for demotion. Please fill out the rest of the form.`)
+  if (fetchedCard) {
+    alert(
+      "A card already exists. Publishing of multiple cards is not allowed. Please update your card."
+    )
+    isExistingCard = true
+    await loadCardIntoForm(fetchedCard)
+  }
+  // Populate the form with the admin's name
+  const nameInput = document.getElementById("minter-name-input")
+  nameInput.value = adminName
+
+  // Display the form if it's hidden
+  const formContainer = document.getElementById("promotion-form-container")
+  formContainer.style.display = "flex"
+
+  // Optionally hide other sections (e.g., the existing proposals section)
+  // const proposalsSection = document.getElementById("existing-proposals-section")
+  // proposalsSection.style.display = "none"
+
+  // Notify the user to fill out the rest
+  alert(
+    `Admin "${adminName}" has been selected for demotion. Please fill out the rest of the form.`
+  )
 }
-  
 
 const fetchExistingARCard = async (cardIdentifierPrefix, minterName) => {
-    try {
-      const response = await searchSimple(
-        'BLOG_POST',
-        `${cardIdentifierPrefix}`,
-        '',
-        0,
-        0,
-        '',
-        false,
-        true
-      )
-      
-      console.log(`fetchExistingCard searchSimple response: ${JSON.stringify(response, null, 2)}`)
-  
-      if (!response || !Array.isArray(response) || response.length === 0) {
-        console.log("No cards found.")
-        return null
-      }
-  
-      const validatedCards = await Promise.all(
-        response.map(async (card) => {
-          const isValid = await validateCardStructure(card)
-  
-          if (!isValid) return null
-          // Fetch full card data for validation
-          const cardDataResponse = await qortalRequest({
-            action: "FETCH_QDN_RESOURCE",
-            name: card.name,
-            service: "BLOG_POST",
-            identifier: card.identifier,
-          })
-  
-          if (cardDataResponse.minterName === minterName) {
-            console.log(`Card with the same minterName found: ${minterName}`)
-            if (cardDataResponse.creator === userState.accountName) {
-                console.log(`The user is the publisher, adding card...`)
-                return {
-                    card,
-                    cardData: cardDataResponse,
-                  }
-            } else {
-                console.warn(`Card found, but user is not the creator!`)
-                otherPublisher = true
-                return null
-            }
-          }
-          return null
-        })
-      )
-      // Filter out null results and check for duplicates
-      const matchingCards = validatedCards.filter((result) => result !== null)
+  try {
+    const response = await searchSimple(
+      "BLOG_POST",
+      `${cardIdentifierPrefix}`,
+      "",
+      0,
+      0,
+      "",
+      false,
+      true
+    )
 
-      if (matchingCards.length > 0) {
-        const { card, cardData } = matchingCards[0] // Use the first matching card, which should be the first published for the minterName
-        existingCardIdentifier = card.identifier
-        existingCardData = cardData
-        isExistingCard = true
-  
-        return {
-          cardData
-        }
-      }
-  
-      console.log("No valid cards found or no matching minterName.")
-      return null
-    } catch (error) {
-      console.error("Error fetching existing AR card:", error)
+    console.log(
+      `fetchExistingCard searchSimple response: ${JSON.stringify(
+        response,
+        null,
+        2
+      )}`
+    )
+
+    if (!response || !Array.isArray(response) || response.length === 0) {
+      console.log("No cards found.")
       return null
     }
+
+    const validatedCards = await Promise.all(
+      response.map(async (card) => {
+        const isValid = await validateCardStructure(card)
+
+        if (!isValid) return null
+        // Fetch full card data for validation
+        const cardDataResponse = await qortalRequest({
+          action: "FETCH_QDN_RESOURCE",
+          name: card.name,
+          service: "BLOG_POST",
+          identifier: card.identifier,
+        })
+
+        if (cardDataResponse.minterName === minterName) {
+          console.log(`Card with the same minterName found: ${minterName}`)
+          if (cardDataResponse.creator === userState.accountName) {
+            console.log(`The user is the publisher, adding card...`)
+            return {
+              card,
+              cardData: cardDataResponse,
+            }
+          } else {
+            console.warn(`Card found, but user is not the creator!`)
+            otherPublisher = true
+            return null
+          }
+        }
+        return null
+      })
+    )
+    // Filter out null results and check for duplicates
+    const matchingCards = validatedCards.filter((result) => result !== null)
+
+    if (matchingCards.length > 0) {
+      const { card, cardData } = matchingCards[0] // Use the first matching card, which should be the first published for the minterName
+      existingCardIdentifier = card.identifier
+      existingCardData = cardData
+      isExistingCard = true
+
+      return {
+        cardData,
+      }
+    }
+
+    console.log("No valid cards found or no matching minterName.")
+    return null
+  } catch (error) {
+    console.error("Error fetching existing AR card:", error)
+    return null
+  }
 }
-  
 
 const publishARCard = async (cardIdentifierPrefix) => {
-    const minterNameInput = document.getElementById("minter-name-input").value.trim()
-    const potentialNameInfo = await getNameInfo(minterNameInput)
-    let minterName
-    let address
-    let isPromotionCard
-    
-    if (potentialNameInfo.owner) {
-        console.log(`MINTER NAME FOUND:`, minterNameInput)
-        minterName = minterNameInput
-        address = potentialNameInfo.owner
+  const minterNameInput = document
+    .getElementById("minter-name-input")
+    .value.trim()
+  const potentialNameInfo = await getNameInfo(minterNameInput)
+  let minterName
+  let address
+  let isPromotionCard
 
+  if (potentialNameInfo.owner) {
+    console.log(`MINTER NAME FOUND:`, minterNameInput)
+    minterName = minterNameInput
+    address = potentialNameInfo.owner
+  } else {
+    console.warn(`user input an address?...`, minterNameInput)
+    if (!address) {
+      const validAddress = await getAddressInfo(minterNameInput)
+      if (validAddress) {
+        address = minterNameInput
+      } else {
+        console.error(`input address by user INVALID`, minterNameInput)
+        alert(`You have input an invalid address! Please try again...`)
+        return
+      }
+    }
+    const checkForName = await getNameFromAddress(minterNameInput)
+
+    if (checkForName) {
+      minterName = checkForName
+    } else if (!checkForName && address) {
+      console.warn(`user input an address that has no name...`)
+      alert(
+        `you have input an address that has no name, the address will need to register a name prior to being able to be promoted`
+      )
+      return
     } else {
-        console.warn(`user input an address?...`, minterNameInput)
-        if (!address){
-            const validAddress = await getAddressInfo(minterNameInput)
-            if (validAddress){
-                address = minterNameInput
-            } else {
-                console.error(`input address by user INVALID`, minterNameInput)
-                alert(`You have input an invalid address! Please try again...`)
-                return
-            }
-        }
-        const checkForName = await getNameFromAddress(minterNameInput)
-
-        if (checkForName) {
-            minterName = checkForName
-        } else if (!checkForName && address){
-            console.warn(`user input an address that has no name...`)
-            alert(`you have input an address that has no name, the address will need to register a name prior to being able to be promoted`)
-            return
-        } else {
-            console.warn(`Input was either an invalid name, or incorrect address?`, minterNameInput)
-            alert(`Your input could not be validated, check the name/address and try again!`)
-            return
-        }
+      console.warn(
+        `Input was either an invalid name, or incorrect address?`,
+        minterNameInput
+      )
+      alert(
+        `Your input could not be validated, check the name/address and try again!`
+      )
+      return
     }
-    const exists = await fetchExistingARCard(cardIdentifierPrefix, minterName)
+  }
+  const exists = await fetchExistingARCard(cardIdentifierPrefix, minterName)
 
-    if (exists) {
-        alert(`An existing card was found, you must update it, two cards for the samme name cannot be published! Loading card data...`)
-        if (exists.creator != userState.accountName) {
-            alert(`You are not the original publisher of this card, exiting.`)
-            return
-        }else {
-            await loadCardIntoForm(existingCardData)
-            minterName = exists.minterName
-            const nameInfo = await getNameInfo(exists.minterName)
-            address = nameInfo.owner
-            isExistingCard = true
-        }
-    } 
+  if (exists) {
+    alert(
+      `An existing card was found, you must update it, two cards for the samme name cannot be published! Loading card data...`
+    )
+    if (exists.creator != userState.accountName) {
+      alert(`You are not the original publisher of this card, exiting.`)
+      return
+    } else {
+      await loadCardIntoForm(existingCardData)
+      minterName = exists.minterName
+      const nameInfo = await getNameInfo(exists.minterName)
+      address = nameInfo.owner
+      isExistingCard = true
+    }
+  }
 
-    const minterGroupData = await fetchMinterGroupMembers()
-    minterGroupAddresses = minterGroupData.map(m => m.member)
+  const minterGroupData = await fetchMinterGroupMembers()
+  minterGroupAddresses = minterGroupData.map((m) => m.member)
 
-    const minterAdminGroupData = await fetchMinterGroupAdmins()
-    minterAdminAddresses = minterAdminGroupData.map(m => m.member)
+  const minterAdminGroupData = await fetchMinterGroupAdmins()
+  minterAdminAddresses = minterAdminGroupData.map((m) => m.member)
 
-    if (minterAdminAddresses.includes(address)){
-        isPromotionCard = false
-        console.warn(`this is a DEMOTION`, address)
-    }else if (minterGroupAddresses.includes(address)) {
-      isPromotionCard = true
-      console.warn(`address is a MINTER, this is a promotion card...`)
+  if (minterAdminAddresses.includes(address)) {
+    isPromotionCard = false
+    console.warn(`this is a DEMOTION`, address)
+  } else if (minterGroupAddresses.includes(address)) {
+    isPromotionCard = true
+    console.warn(`address is a MINTER, this is a promotion card...`)
+  }
+
+  if (
+    !minterAdminAddresses.includes(address) &&
+    !minterGroupAddresses.includes(address)
+  ) {
+    console.error(
+      `you cannot publish a card here unless the user is a MINTER or an ADMIN!`
+    )
+    alert(
+      `Card cannot be published for an account that is neither a minter nor an admin! This board is for Promotions and Demotions of Admins ONLY!`
+    )
+    return
+  }
+
+  const header = document.getElementById("card-header").value.trim()
+  const content = document.getElementById("card-content").value.trim()
+  const links = Array.from(document.querySelectorAll(".card-link"))
+    .map((input) => input.value.trim())
+    .filter((link) => link.startsWith("qortal://"))
+
+  if (!header || !content) {
+    alert("Header and content are required!")
+    return
+  }
+
+  const cardIdentifier = isExistingCard
+    ? existingCardIdentifier
+    : `${cardIdentifierPrefix}-${await uid()}`
+  const pollName = `${cardIdentifier}-poll`
+  const pollDescription = `AR Board Card Proposed By: ${userState.accountName}`
+
+  const cardData = {
+    minterName,
+    minterAddress: address,
+    header,
+    content,
+    links,
+    creator: userState.accountName,
+    timestamp: Date.now(),
+    poll: pollName,
+    promotionCard: isPromotionCard,
+  }
+
+  try {
+    let base64CardData = await objectToBase64(cardData)
+    if (!base64CardData) {
+      console.log(
+        `initial base64 object creation with objectToBase64 failed, using btoa...`
+      )
+      base64CardData = btoa(JSON.stringify(cardData))
     }
 
-    if (!minterAdminAddresses.includes(address) && !minterGroupAddresses.includes(address)) {
-        console.error(`you cannot publish a card here unless the user is a MINTER or an ADMIN!`)
-        alert(`Card cannot be published for an account that is neither a minter nor an admin! This board is for Promotions and Demotions of Admins ONLY!`)
-        return
-    }
-    
-    const header = document.getElementById("card-header").value.trim()
-    const content = document.getElementById("card-content").value.trim()
-    const links = Array.from(document.querySelectorAll(".card-link"))
-      .map(input => input.value.trim())
-      .filter(link => link.startsWith("qortal://"))
-  
-    if (!header || !content) {
-        alert("Header and content are required!")
-        return
-    }
-  
-    const cardIdentifier = isExistingCard ? existingCardIdentifier : `${cardIdentifierPrefix}-${await uid()}`
-    const pollName = `${cardIdentifier}-poll`
-    const pollDescription = `AR Board Card Proposed By: ${userState.accountName}`
-  
-    const cardData = {
-      minterName,  
-      minterAddress: address,
-      header,
-      content,
-      links,
-      creator: userState.accountName,
-      timestamp: Date.now(),
-      poll: pollName,
-      promotionCard: isPromotionCard
-    }
-    
-    try {
-      let base64CardData = await objectToBase64(cardData)
-        if (!base64CardData) {
-          console.log(`initial base64 object creation with objectToBase64 failed, using btoa...`)
-          base64CardData = btoa(JSON.stringify(cardData))
-        }
-      
+    await qortalRequest({
+      action: "PUBLISH_QDN_RESOURCE",
+      name: userState.accountName,
+      service: "BLOG_POST",
+      identifier: cardIdentifier,
+      data64: base64CardData,
+    })
+
+    if (!isExistingCard) {
       await qortalRequest({
-        action: "PUBLISH_QDN_RESOURCE",
-        name: userState.accountName,
-        service: "BLOG_POST",
-        identifier: cardIdentifier,
-        data64: base64CardData,
+        action: "CREATE_POLL",
+        pollName,
+        pollDescription,
+        pollOptions: ["Yes, No"],
+        pollOwnerAddress: userState.accountAddress,
       })
-  
-      if (!isExistingCard){
-        await qortalRequest({
-          action: "CREATE_POLL",
-          pollName,
-          pollDescription,
-          pollOptions: ['Yes, No'],
-          pollOwnerAddress: userState.accountAddress,
-        })
-        alert("Card and poll published successfully!")
-      }
-  
-      if (isExistingCard){
-        alert("Card Updated Successfully! (No poll updates are possible at this time...)")
-        isExistingCard = false
-      }
+      alert("Card and poll published successfully!")
+    }
 
-      if (isPromotionCard){
-        isPromotionCard = false
-      }
-  
-      document.getElementById("publish-card-form").reset()
-      document.getElementById("promotion-form-container").style.display = "none"
+    if (isExistingCard) {
+      alert(
+        "Card Updated Successfully! (No poll updates are possible at this time...)"
+      )
+      isExistingCard = false
+    }
+
+    if (isPromotionCard) {
+      isPromotionCard = false
+    }
+
+    document.getElementById("publish-card-form").reset()
+    document.getElementById("promotion-form-container").style.display = "none"
     //   document.getElementById("cards-container").style.display = "flex"
 
-      await loadCards(addRemoveIdentifierPrefix, true)
-  
-    } catch (error) {
-  
-      console.error("Error publishing card or poll:", error)
-      alert("Failed to publish card and poll.")
-    }
+    await loadCards(addRemoveIdentifierPrefix, true)
+  } catch (error) {
+    console.error("Error publishing card or poll:", error)
+    alert("Failed to publish card and poll.")
+  }
 }
 
 const checkAndDisplayActions = async (adminYes, name, cardIdentifier) => {
-    const latestBlockInfo = await getLatestBlockInfo()
-    const isBlockPassed = latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT 
-    let minAdminCount 
-    const minterAdmins = (cachedMinterAdmins && cachedMinterAdmins.length > 0)
+  const latestBlockInfo = await getLatestBlockInfo()
+  const isBlockPassed =
+    latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
+  let minAdminCount
+  const minterAdmins =
+    cachedMinterAdmins && cachedMinterAdmins.length > 0
       ? cachedMinterAdmins
       : await fetchMinterGroupAdmins()
-  
-    if ((minterAdmins) && (minterAdmins.length === 1)){
-      console.warn(`simply a double-check that there is only one MINTER group admin, in which case the group hasn't been transferred to null...keeping default minAdminCount of: ${minAdminCount}`)
-      minAdminCount = 9
-    } else if ((minterAdmins) && (minterAdmins.length > 1) && isBlockPassed){
-      const totalAdmins = minterAdmins.length
-      const fortyPercent = totalAdmins * 0.40
-      minAdminCount = Math.ceil(fortyPercent)
-      console.warn(`this is another check to ensure minterAdmin group has more than 1 admin. IF so we will calculate the 40% needed for GROUP_APPROVAL, that number is: ${minAdminCount}`)
-    }
-    const addressInfo = await getNameInfo(name)
-    const address = addressInfo.owner
 
-    if (isBlockPassed) {
-      console.warn(`feature trigger has passed, checking for approval requirements`)
-      const addAdminApprovalHtml = await checkGroupApprovalAndCreateButton(address, cardIdentifier, "ADD_GROUP_ADMIN")
-      const removeAdminApprovalHtml = await checkGroupApprovalAndCreateButton(address, cardIdentifier, "REMOVE_GROUP_ADMIN")
-      
-      if (addAdminApprovalHtml) {
-        return addAdminApprovalHtml
-      }
-  
-      if (removeAdminApprovalHtml) {
-        return removeAdminApprovalHtml
-      }
-    }
+  if (minterAdmins && minterAdmins.length === 1) {
+    console.warn(
+      `simply a double-check that there is only one MINTER group admin, in which case the group hasn't been transferred to null...keeping default minAdminCount of: ${minAdminCount}`
+    )
+    minAdminCount = 9
+  } else if (minterAdmins && minterAdmins.length > 1 && isBlockPassed) {
+    const totalAdmins = minterAdmins.length
+    const fortyPercent = totalAdmins * 0.4
+    minAdminCount = Math.ceil(fortyPercent)
+    console.warn(
+      `this is another check to ensure minterAdmin group has more than 1 admin. IF so we will calculate the 40% needed for GROUP_APPROVAL, that number is: ${minAdminCount}`
+    )
+  }
+  const addressInfo = await getNameInfo(name)
+  const address = addressInfo.owner
 
-    if (!minterGroupAddresses) {
-        const minterGroupData = await fetchMinterGroupMembers()
-        minterGroupAddresses = minterGroupData.map(m => m.member)
-    }
+  if (isBlockPassed) {
+    console.warn(
+      `feature trigger has passed, checking for approval requirements`
+    )
+    const addAdminApprovalHtml = await checkGroupApprovalAndCreateButton(
+      address,
+      cardIdentifier,
+      "ADD_GROUP_ADMIN"
+    )
+    const removeAdminApprovalHtml = await checkGroupApprovalAndCreateButton(
+      address,
+      cardIdentifier,
+      "REMOVE_GROUP_ADMIN"
+    )
 
-    if (!minterAdminAddresses) {
-        const adminAddressData = await fetchMinterGroupAdmins()
-        minterAdminAddresses = adminAddressData.map(m => m.member)
-    }
-
-    if (!minterGroupAddresses.includes(userState.accountAddress)){
-        console.warn(`User is not in the MINTER group, no need for buttons`)
-        return null
+    if (addAdminApprovalHtml) {
+      return addAdminApprovalHtml
     }
 
-    if (adminYes >= minAdminCount && (minterAdminAddresses.includes(address))){
-        const removeAdminHtml = createRemoveAdminButton(name, cardIdentifier, address)
-        return removeAdminHtml
-    } else if (adminYes >= minAdminCount && (minterGroupAddresses.includes(address))){
-        const addAdminHtml = createAddAdminButton(name, cardIdentifier, address)
-        return addAdminHtml
+    if (removeAdminApprovalHtml) {
+      return removeAdminApprovalHtml
     }
+  }
+
+  if (!minterGroupAddresses) {
+    const minterGroupData = await fetchMinterGroupMembers()
+    minterGroupAddresses = minterGroupData.map((m) => m.member)
+  }
+
+  if (!minterAdminAddresses) {
+    const adminAddressData = await fetchMinterGroupAdmins()
+    minterAdminAddresses = adminAddressData.map((m) => m.member)
+  }
+
+  if (!minterGroupAddresses.includes(userState.accountAddress)) {
+    console.warn(`User is not in the MINTER group, no need for buttons`)
+    return null
+  }
+
+  if (adminYes >= minAdminCount && minterAdminAddresses.includes(address)) {
+    const removeAdminHtml = createRemoveAdminButton(
+      name,
+      cardIdentifier,
+      address
+    )
+    return removeAdminHtml
+  } else if (
+    adminYes >= minAdminCount &&
+    minterGroupAddresses.includes(address)
+  ) {
+    const addAdminHtml = createAddAdminButton(name, cardIdentifier, address)
+    return addAdminHtml
+  }
 }
 
 const createAddAdminButton = (name, cardIdentifier, address) => {
-    return `
+  return `
       <div id="add-button-container-${cardIdentifier}" style="margin-top: 1em;">
         <button onclick="handleAddMinterGroupAdmin('${name}','${address}')"
                 style="padding: 10px; background: rgb(4, 119, 134); color: white; border: none; cursor: pointer; border-radius: 5px;"
@@ -660,7 +729,7 @@ const createAddAdminButton = (name, cardIdentifier, address) => {
 }
 
 const createRemoveAdminButton = (name, cardIdentifier, address) => {
-    return `
+  return `
       <div id="add-button-container-${cardIdentifier}" style="margin-top: 1em;">
         <button onclick="handleRemoveMinterGroupAdmin('${name}','${address}')"
                 style="padding: 10px; background: rgb(134, 4, 4); color: white; border: none; cursor: pointer; border-radius: 5px;"
@@ -673,326 +742,529 @@ const createRemoveAdminButton = (name, cardIdentifier, address) => {
 }
 
 const handleAddMinterGroupAdmin = async (name, address) => {
-    try {
-      // Optional block check
-      let txGroupId = 0
-      let member = address
-      // const { height: currentHeight } = await getLatestBlockInfo()
-      const isBlockPassed = await featureTriggerCheck()
-      if (isBlockPassed) {
-        console.log(`block height above featureTrigger Height, using group approval method...txGroupId 694`)
-        txGroupId = 694
-      }
-  
-      const ownerPublicKey = await getPublicKeyFromAddress(userState.accountAddress)
-      const fee = 0.01
-  
-      const rawTx = await createAddGroupAdminTransaction(ownerPublicKey, 694, member, txGroupId, fee)
-  
-      const signedTx = await qortalRequest({
-        action: "SIGN_TRANSACTION",
-        unsignedBytes: rawTx
-      })
-
-      if (!signedTx) {
-        console.warn(`this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added?`)
-        alert(`this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added? Please talk to developers.`)
-        return
-      }
-      
-      let txToProcess = signedTx
-  
-      const processTx = await processTransaction(txToProcess)
-  
-      if (typeof processTx === 'object') {
-        console.log("transaction success object:", processTx)
-        alert(`${name} kick successfully issued! Wait for confirmation...Transaction Response: ${JSON.stringify(processTx)}`)
-      } else {
-        console.log("transaction raw text response:", processTx)
-        alert(`TxResponse: ${JSON.stringify(processTx)}`)
-      }
-  
-    } catch (error) {
-      console.error("Error removing minter:", error)
-      alert(`Error:${error}. Please try again.`)
+  try {
+    // Optional block check
+    let txGroupId = 0
+    let member = address
+    // const { height: currentHeight } = await getLatestBlockInfo()
+    const isBlockPassed = await featureTriggerCheck()
+    if (isBlockPassed) {
+      console.log(
+        `block height above featureTrigger Height, using group approval method...txGroupId 694`
+      )
+      txGroupId = 694
     }
+
+    const ownerPublicKey = await getPublicKeyFromAddress(
+      userState.accountAddress
+    )
+    const fee = 0.01
+
+    const rawTx = await createAddGroupAdminTransaction(
+      ownerPublicKey,
+      694,
+      member,
+      txGroupId,
+      fee
+    )
+
+    const signedTx = await qortalRequest({
+      action: "SIGN_TRANSACTION",
+      unsignedBytes: rawTx,
+    })
+
+    if (!signedTx) {
+      console.warn(
+        `this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added?`
+      )
+      alert(
+        `this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added? Please talk to developers.`
+      )
+      return
+    }
+
+    let txToProcess = signedTx
+
+    const processTx = await processTransaction(txToProcess)
+
+    if (typeof processTx === "object") {
+      console.log("transaction success object:", processTx)
+      alert(
+        `${name} kick successfully issued! Wait for confirmation...Transaction Response: ${JSON.stringify(
+          processTx
+        )}`
+      )
+    } else {
+      console.log("transaction raw text response:", processTx)
+      alert(`TxResponse: ${JSON.stringify(processTx)}`)
+    }
+  } catch (error) {
+    console.error("Error removing minter:", error)
+    alert(`Error:${error}. Please try again.`)
+  }
 }
 
 const handleRemoveMinterGroupAdmin = async (name, address) => {
-    try {
-      // Optional block check
-      let txGroupId = 0
-      const admin = address
-      // const { height: currentHeight } = await getLatestBlockInfo()
-      const isBlockPassed = await featureTriggerCheck()
-      if (isBlockPassed) {
-        console.log(`block height above featureTrigger Height, using group approval method...txGroupId 694`)
-        txGroupId = 694
-      }
-  
-      const ownerPublicKey = await getPublicKeyFromAddress(userState.accountAddress)
-      const fee = 0.01
-  
-      const rawTx = await createRemoveGroupAdminTransaction(ownerPublicKey, 694, admin, txGroupId, fee)
-  
-      const signedTx = await qortalRequest({
-        action: "SIGN_TRANSACTION",
-        unsignedBytes: rawTx
-      })
-      if (!signedTx) {
-        console.warn(`this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added?`)
-        alert(`this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added? Please talk to developers.`)
-        return
-      }
-      
-      let txToProcess = signedTx
-  
-      const processTx = await processTransaction(txToProcess)
-  
-      if (typeof processTx === 'object') {
-        console.log("transaction success object:", processTx)
-        alert(`${name} kick successfully issued! Wait for confirmation...Transaction Response: ${JSON.stringify(processTx)}`)
-      } else {
-        console.log("transaction raw text response:", processTx)
-        alert(`TxResponse: ${JSON.stringify(processTx)}`)
-      }
-  
-    } catch (error) {
-      console.error("Error removing minter:", error)
-      alert(`Error:${error}. Please try again.`)
+  try {
+    // Optional block check
+    let txGroupId = 0
+    const admin = address
+    // const { height: currentHeight } = await getLatestBlockInfo()
+    const isBlockPassed = await featureTriggerCheck()
+    if (isBlockPassed) {
+      console.log(
+        `block height above featureTrigger Height, using group approval method...txGroupId 694`
+      )
+      txGroupId = 694
     }
-}
 
-const fallbackMinterCheck = async (minterName, minterGroupMembers, minterAdmins) => {
-    // Ensure we have addresses
-    if (!minterGroupMembers) {
-      console.warn("No minterGroupMembers array was passed in fallback check!")
-      return false
+    const ownerPublicKey = await getPublicKeyFromAddress(
+      userState.accountAddress
+    )
+    const fee = 0.01
+
+    const rawTx = await createRemoveGroupAdminTransaction(
+      ownerPublicKey,
+      694,
+      admin,
+      txGroupId,
+      fee
+    )
+
+    const signedTx = await qortalRequest({
+      action: "SIGN_TRANSACTION",
+      unsignedBytes: rawTx,
+    })
+    if (!signedTx) {
+      console.warn(
+        `this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added?`
+      )
+      alert(
+        `this only happens if the SIGN_TRANSACTION qortalRequest failed... are you using the legacy UI prior to this qortalRequest being added? Please talk to developers.`
+      )
+      return
     }
-    if (!minterAdmins) {
-      console.warn("No minterAdmins array was passed in fallback check!")
-      return false
-    }
-    const minterGroupAddresses = minterGroupMembers.map(m => m.member)
-    const adminAddresses = minterAdmins.map(m => m.member)
-    const minterAcctInfo = await getNameInfo(minterName)
-    if (!minterAcctInfo || !minterAcctInfo.owner) {
-      console.warn(`Name info not found or missing 'owner' for ${minterName}`)
-      return false
-    }
-    // If user is already in the group => we call it a "promotion card"
-    if (adminAddresses.includes(minterAcctInfo.owner)) {
-        console.warn(`display check found minterAdminCard - NOT a promotion card...`)
-        return false
+
+    let txToProcess = signedTx
+
+    const processTx = await processTransaction(txToProcess)
+
+    if (typeof processTx === "object") {
+      console.log("transaction success object:", processTx)
+      alert(
+        `${name} kick successfully issued! Wait for confirmation...Transaction Response: ${JSON.stringify(
+          processTx
+        )}`
+      )
     } else {
-        return minterGroupAddresses.includes(minterAcctInfo.owner)
+      console.log("transaction raw text response:", processTx)
+      alert(`TxResponse: ${JSON.stringify(processTx)}`)
     }
+  } catch (error) {
+    console.error("Error removing minter:", error)
+    alert(`Error:${error}. Please try again.`)
+  }
 }
-  
 
-const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCount, cardUpdatedTime, bgColor, cardPublisherAddress, illegalDuplicate) => {
-    const { minterName, minterAddress='', header, content, links, creator, timestamp, poll, promotionCard } = cardData
-    const formattedDate = new Date(timestamp).toLocaleString()
-    const minterAvatar = await getMinterAvatar(minterName)
-    const creatorAvatar = await getMinterAvatar(creator)
-    // Kakashi Note: Render links with escaped data attributes and safe modal handlers for untrusted card content.
-    const linksHTML = links.map((link, index) => `
-      <button data-link="${qEscapeAttr(link)}" onclick="openLinkDisplayModalFromButton(this)">
+const fallbackMinterCheck = async (
+  minterName,
+  minterGroupMembers,
+  minterAdmins
+) => {
+  // Ensure we have addresses
+  if (!minterGroupMembers) {
+    console.warn("No minterGroupMembers array was passed in fallback check!")
+    return false
+  }
+  if (!minterAdmins) {
+    console.warn("No minterAdmins array was passed in fallback check!")
+    return false
+  }
+  const minterGroupAddresses = minterGroupMembers.map((m) => m.member)
+  const adminAddresses = minterAdmins.map((m) => m.member)
+  const minterAcctInfo = await getNameInfo(minterName)
+  if (!minterAcctInfo || !minterAcctInfo.owner) {
+    console.warn(`Name info not found or missing 'owner' for ${minterName}`)
+    return false
+  }
+  // If user is already in the group => we call it a "promotion card"
+  if (adminAddresses.includes(minterAcctInfo.owner)) {
+    console.warn(
+      `display check found minterAdminCard - NOT a promotion card...`
+    )
+    return false
+  } else {
+    return minterGroupAddresses.includes(minterAcctInfo.owner)
+  }
+}
+
+const createARCardHTML = async (
+  cardData,
+  pollResults,
+  cardIdentifier,
+  commentCount,
+  cardUpdatedTime,
+  bgColor,
+  cardPublisherAddress,
+  illegalDuplicate
+) => {
+  const {
+    minterName,
+    minterAddress = "",
+    header,
+    content,
+    links,
+    creator,
+    timestamp,
+    poll,
+    promotionCard,
+  } = cardData
+  const formattedDate = new Date(timestamp).toLocaleString()
+  const minterAvatar = await getMinterAvatar(minterName)
+  const creatorAvatar = await getMinterAvatar(creator)
+  // Kakashi Note: Render links with escaped data attributes and safe modal handlers for untrusted card content.
+  const linksHTML = links
+    .map(
+      (link, index) => `
+      <button data-link="${qEscapeAttr(
+        link
+      )}" onclick="openLinkDisplayModalFromButton(this)">
         ${qEscapeHtml(`Link ${index + 1} - ${link}`)}
       </button>
-    `).join("")
-    const safeMinterName = qEscapeHtml(minterName)
-    const safeCreator = qEscapeHtml(creator)
-    const safeHeader = qEscapeHtml(header)
-    const safeContent = qEscapeHtml(content).replace(/\n/g, '<br>')
-    const safeFormattedDate = qEscapeHtml(formattedDate)
-    // Adding fix for accidental code in 1.04b
-    let publishedMinterAddress
-    if (!minterAddress || minterAddress ==='priorToAddition'){
-        publishedMinterAddress = ''
-    } else if (minterAddress){
-        console.log(`minter address found in card info: ${minterAddress}`)
-        publishedMinterAddress = minterAddress
-    }
+    `
+    )
+    .join("")
+  const safeMinterName = qEscapeHtml(minterName)
+  const safeCreator = qEscapeHtml(creator)
+  const safeHeader = qEscapeHtml(header)
+  const safeContent = qEscapeHtml(content).replace(/\n/g, "<br>")
+  const safeFormattedDate = qEscapeHtml(formattedDate)
+  // Adding fix for accidental code in 1.04b
+  let publishedMinterAddress
+  if (!minterAddress || minterAddress === "priorToAddition") {
+    publishedMinterAddress = ""
+  } else if (minterAddress) {
+    console.log(`minter address found in card info: ${minterAddress}`)
+    publishedMinterAddress = minterAddress
+  }
 
-    const minterGroupMembers = (cachedMinterGroup && cachedMinterGroup.length > 0)
+  const minterGroupMembers =
+    cachedMinterGroup && cachedMinterGroup.length > 0
       ? cachedMinterGroup
       : await fetchMinterGroupMembers()
-    const minterAdmins = (cachedMinterAdmins && cachedMinterAdmins.length > 0)
+  const minterAdmins =
+    cachedMinterAdmins && cachedMinterAdmins.length > 0
       ? cachedMinterAdmins
       : await fetchMinterGroupAdmins()
 
-    let showPromotionCard = false
-    // showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
+  let showPromotionCard = false
+  // showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
 
-    if (typeof promotionCard === 'boolean') {
-      showPromotionCard = promotionCard
-    } else if (typeof promotionCard === 'string') {
-      // Could be "true" or "false" or something else
-      const lower = promotionCard.trim().toLowerCase()
-      if (lower === "true") {
-        showPromotionCard = true
-      } else if (lower === "false") {
-        showPromotionCard = false
-      } else {
-        // Unexpected string => fallback
-        console.warn(`Unexpected string in promotionCard="${promotionCard}"`)
-        showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
-      }
-    } else if (promotionCard == null) {
-      // null or undefined => fallback check
-      console.warn(`No promotionCard field in card data, doing manual check...`)
-      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
+  if (typeof promotionCard === "boolean") {
+    showPromotionCard = promotionCard
+  } else if (typeof promotionCard === "string") {
+    // Could be "true" or "false" or something else
+    const lower = promotionCard.trim().toLowerCase()
+    if (lower === "true") {
+      showPromotionCard = true
+    } else if (lower === "false") {
+      showPromotionCard = false
     } else {
-      // If it’s an object or something else weird => fallback
-      console.warn(`promotionCard has unexpected type, fallback...`)
-      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
+      // Unexpected string => fallback
+      console.warn(`Unexpected string in promotionCard="${promotionCard}"`)
+      showPromotionCard = await fallbackMinterCheck(
+        minterName,
+        minterGroupMembers,
+        minterAdmins
+      )
     }
+  } else if (promotionCard == null) {
+    // null or undefined => fallback check
+    console.warn(`No promotionCard field in card data, doing manual check...`)
+    showPromotionCard = await fallbackMinterCheck(
+      minterName,
+      minterGroupMembers,
+      minterAdmins
+    )
+  } else {
+    // If it’s an object or something else weird => fallback
+    console.warn(`promotionCard has unexpected type, fallback...`)
+    showPromotionCard = await fallbackMinterCheck(
+      minterName,
+      minterGroupMembers,
+      minterAdmins
+    )
+  }
 
-    let cardColorCode = (showPromotionCard) ? 'rgb(17, 44, 46)' : 'rgb(57, 11, 13)'
-  
-    const promotionDemotionHtml = (showPromotionCard) ? `
+  let cardColorCode = showPromotionCard ? "rgb(17, 44, 46)" : "rgb(57, 11, 13)"
+
+  const promotionDemotionHtml = showPromotionCard
+    ? `
       <div class="support-header"><h5> REGARDING (Promotion): </h5></div>
       ${minterAvatar}
-      <h3>${safeMinterName}</h3>` :
-      `
+      <h3>${safeMinterName}</h3>`
+    : `
       <div class="support-header"><h5> REGARDING (Demotion): </h5></div>
       ${minterAvatar}
       <h3>${safeMinterName}</h3>`
-  
-    if (!promotionDemotionHtml){
-        console.warn(`promotionDemotionHtml missing!`)
-    }    
-    const { adminYes = 0, adminNo = 0, minterYes = 0, minterNo = 0, totalYes = 0, totalNo = 0, totalYesWeight = 0, totalNoWeight = 0, detailsHtml } = await processPollData(pollResults, minterGroupMembers, minterAdmins, creator, cardIdentifier)
-  
-    createModal('links')
-    createModal('poll-details')
-  
-    let actionsHtml = ''
-    let altText = ''
-    const verifiedName = await validateMinterName(minterName)
-  
-    if (verifiedName && !illegalDuplicate) {
-      const accountInfo = await getNameInfo(verifiedName)
-      const accountAddress = accountInfo.owner
-      const minterGroupAddresses = minterGroupMembers.map(m => m.member)
-      const adminAddresses = minterAdmins.map(m => m.member)
-      const existingAdmin = adminAddresses.includes(accountAddress)
-      const existingMinter = minterGroupAddresses.includes(accountAddress)
-      console.log(`name is validated, utilizing for removal features...${verifiedName}`)
-      const actionsHtmlCheck = await checkAndDisplayActions(adminYes, verifiedName, cardIdentifier)
-      actionsHtml = actionsHtmlCheck
-      
-      const { finalAddTxs, pendingAddTxs, expiredAddTxs, finalRemTxs, pendingRemTxs, expiredRemTxs } = await getAllARTxDataCached()
 
-      const userConfirmedAdd = finalAddTxs.some(
-        (tx) => tx.groupId === 694 && tx.member === accountAddress
-      )
-      const userPendingAdd = pendingAddTxs.some(
-        (tx) => tx.groupId === 694 && tx.member === accountAddress
-      )
-      const confirmedRemove = finalRemTxs.some(
-        (tx) => tx.groupId === 694 && tx.admin === accountAddress
-      )
-      const userPendingRemove = pendingRemTxs.some(
-        (tx) => tx.groupId === 694 && tx.admin === accountAddress
-      )
-      const userExpiredAdd = expiredAddTxs.some(
-        (tx) => tx.groupId === 694 && tx.member === accountAddress
-      )
-      const userExpiredRem = expiredRemTxs.some(
-        (tx) => tx.groupId === 694 && tx.admin === accountAddress
-      )
+  if (!promotionDemotionHtml) {
+    console.warn(`promotionDemotionHtml missing!`)
+  }
+  const {
+    adminYes = 0,
+    adminNo = 0,
+    minterYes = 0,
+    minterNo = 0,
+    totalYes = 0,
+    totalNo = 0,
+    totalYesWeight = 0,
+    totalNoWeight = 0,
+    detailsHtml,
+  } = await processPollData(
+    pollResults,
+    minterGroupMembers,
+    minterAdmins,
+    creator,
+    cardIdentifier
+  )
 
-      const noExpired = (!userExpiredAdd && !userExpiredRem)
-      
-      // If user is definitely admin (finalAdd) and not pending removal
-      if (userConfirmedAdd && !userPendingRemove && !userPendingAdd && noExpired && existingAdmin && promotionCard) {
-        console.warn(`account was already admin, final. no add/remove pending.`);
-        cardColorCode = 'rgb(3, 11, 24)'
-        altText  = `<h4 style="color:rgb(89, 191, 204); margin-bottom: 0.5em;">PROMOTED to ADMIN</h4>`;
-        actionsHtml = ''
-      } 
+  createModal("links")
+  createModal("poll-details")
 
-      if (userConfirmedAdd && !userPendingRemove && userExpiredRem && existingAdmin && promotionCard) {
-        console.warn(`Account has previously had a removal attempt expire`);
-        cardColorCode = 'rgb(33, 40, 11)'
-        altText  = `<h4 style="color:rgb(136, 114, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Demotion).</h4>`;
-        actionsHtml = ''
-      } 
+  let actionsHtml = ""
+  let altText = ""
+  const verifiedName = await validateMinterName(minterName)
 
-      if (userConfirmedAdd && !userPendingRemove && userExpiredAdd && existingAdmin && promotionCard) {
-        console.warn(`Account has previously had a removal attempt expire`);
-        cardColorCode = 'rgb(14, 3, 24)'
-        altText  = `<h4 style="color:rgb(114, 117, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Promotion).</h4>`;
-        actionsHtml = ''
-      } 
+  if (verifiedName && !illegalDuplicate) {
+    const accountInfo = await getNameInfo(verifiedName)
+    const accountAddress = accountInfo.owner
+    const minterGroupAddresses = minterGroupMembers.map((m) => m.member)
+    const adminAddresses = minterAdmins.map((m) => m.member)
+    const existingAdmin = adminAddresses.includes(accountAddress)
+    const existingMinter = minterGroupAddresses.includes(accountAddress)
+    console.log(
+      `name is validated, utilizing for removal features...${verifiedName}`
+    )
+    const actionsHtmlCheck = await checkAndDisplayActions(
+      adminYes,
+      verifiedName,
+      cardIdentifier
+    )
+    actionsHtml = actionsHtmlCheck
 
-      if (userConfirmedAdd && userPendingRemove && existingAdmin && noExpired && !promotionCard) {
-        console.warn(`user is a previously approved an admin, but now has pending removals. Keeping html`)
-        altText  = `<h4 style="color:rgb(85, 34, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress...</h4>`;
-      }
+    const {
+      finalAddTxs,
+      pendingAddTxs,
+      expiredAddTxs,
+      finalRemTxs,
+      pendingRemTxs,
+      expiredRemTxs,
+    } = await getAllARTxDataCached()
 
-      if (userConfirmedAdd && userPendingRemove && existingAdmin && userExpiredAdd && !promotionCard) {
-        console.warn(`user is a previously approved an admin, but now has pending removals. Keeping html`)
-        altText  = `<h4 style="color:rgb(85, 74, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Promotion)</h4>`;
-      }
+    const userConfirmedAdd = finalAddTxs.some(
+      (tx) => tx.groupId === 694 && tx.member === accountAddress
+    )
+    const userPendingAdd = pendingAddTxs.some(
+      (tx) => tx.groupId === 694 && tx.member === accountAddress
+    )
+    const confirmedRemove = finalRemTxs.some(
+      (tx) => tx.groupId === 694 && tx.admin === accountAddress
+    )
+    const userPendingRemove = pendingRemTxs.some(
+      (tx) => tx.groupId === 694 && tx.admin === accountAddress
+    )
+    const userExpiredAdd = expiredAddTxs.some(
+      (tx) => tx.groupId === 694 && tx.member === accountAddress
+    )
+    const userExpiredRem = expiredRemTxs.some(
+      (tx) => tx.groupId === 694 && tx.admin === accountAddress
+    )
 
-      if (userConfirmedAdd && userPendingRemove && existingAdmin && userExpiredRem && !promotionCard) {
-        console.warn(`user is a previously approved an admin, but now has pending removals. Keeping html`)
-        altText  = `<h4 style="color:rgb(198, 26, 13); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Demotion)</h4>`;
-      }
-      
-      // If user has a final "remove" and no pending additions or removals and no expired transactions
-       if (confirmedRemove && !userPendingAdd && existingMinter && !existingAdmin && noExpired && !promotionCard) {
-        console.warn(`account was demoted, final. no add pending, existingMinter, no expired add/remove.`);
-        cardColorCode = 'rgb(29, 4, 6)'
-        altText  = `<h4 style="color:rgb(73, 24, 24); margin-bottom: 0.5em;">DEMOTED from ADMIN</h4>`
-        actionsHtml = ''
-      }
+    const noExpired = !userExpiredAdd && !userExpiredRem
 
-      if (confirmedRemove && !userPendingAdd && existingMinter && !existingAdmin && userExpiredRem && !promotionCard) {
-        console.warn(`account was demoted, final. no add pending, existingMinter, no expired add/remove.`);
-        cardColorCode = 'rgb(29, 4, 6)'
-        altText  = `<h4 style="color:rgb(170, 32, 48); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Demotion)</h4>`
-        actionsHtml = ''
-      }
-
-      if (confirmedRemove && !userPendingAdd && existingMinter && !existingAdmin && userExpiredAdd && !promotionCard) {
-        console.warn(`account was demoted, final. no add pending, existingMinter, no expired add/remove.`);
-        cardColorCode = 'rgb(29, 4, 6)'
-        altText  = `<h4 style="color:rgb(119, 170, 32); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Promotion)</h4>`
-        actionsHtml = '' 
-      }
-      
-      // If user has both final remove and pending add, do something else
-      if (confirmedRemove && userPendingAdd && existingMinter && noExpired && promotionCard) {
-        console.warn(`account was previously demoted, but also a pending re-add, allowing actions to show...`)
-        altText  = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...</h4>`
-      }
-
-      if (confirmedRemove && userPendingAdd && existingMinter && userExpiredAdd && promotionCard) {
-        console.warn(`account was previously demoted, but also a pending re-add, allowing actions to show...`)
-        altText  = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Promotion)</h4>`
-      }
-
-      if (confirmedRemove && userPendingAdd && existingMinter && userExpiredRem && promotionCard) {
-        console.warn(`account was previously demoted, but also a pending re-add, allowing actions to show...`)
-        altText  = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Demotion)</h4>`
-      }
-      
-    } else if ( verifiedName && illegalDuplicate) {
-        console.warn(`illegalDuplicate detected (this card was somehow allowed to be published twice, keeping newest as active to prevent issues with old cards and updates, but displaying without actions...)`)
-        cardColorCode = 'rgb(82, 81, 81)'
-        // Kakashi Note: Typo fixed "DUPLICATE (diplayed for data only)"
-        altText  = `<h4 style="color:rgb(21, 30, 39); margin-bottom: 0.5em;">DUPLICATE (displayed for data only)</h4>`
-        actionsHtml = ''
-    } else {
-      console.warn(`name could not be validated, not setting actionsHtml`)
-      actionsHtml = ''
+    // If user is definitely admin (finalAdd) and not pending removal
+    if (
+      userConfirmedAdd &&
+      !userPendingRemove &&
+      !userPendingAdd &&
+      noExpired &&
+      existingAdmin &&
+      promotionCard
+    ) {
+      console.warn(`account was already admin, final. no add/remove pending.`)
+      cardColorCode = "rgb(3, 11, 24)"
+      altText = `<h4 style="color:rgb(89, 191, 204); margin-bottom: 0.5em;">PROMOTED to ADMIN</h4>`
+      actionsHtml = ""
     }
-  
-    return `
+
+    if (
+      userConfirmedAdd &&
+      !userPendingRemove &&
+      userExpiredRem &&
+      existingAdmin &&
+      promotionCard
+    ) {
+      console.warn(`Account has previously had a removal attempt expire`)
+      cardColorCode = "rgb(33, 40, 11)"
+      altText = `<h4 style="color:rgb(136, 114, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Demotion).</h4>`
+      actionsHtml = ""
+    }
+
+    if (
+      userConfirmedAdd &&
+      !userPendingRemove &&
+      userExpiredAdd &&
+      existingAdmin &&
+      promotionCard
+    ) {
+      console.warn(`Account has previously had a removal attempt expire`)
+      cardColorCode = "rgb(14, 3, 24)"
+      altText = `<h4 style="color:rgb(114, 117, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Promotion).</h4>`
+      actionsHtml = ""
+    }
+
+    if (
+      userConfirmedAdd &&
+      userPendingRemove &&
+      existingAdmin &&
+      noExpired &&
+      !promotionCard
+    ) {
+      console.warn(
+        `user is a previously approved an admin, but now has pending removals. Keeping html`
+      )
+      altText = `<h4 style="color:rgb(85, 34, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress...</h4>`
+    }
+
+    if (
+      userConfirmedAdd &&
+      userPendingRemove &&
+      existingAdmin &&
+      userExpiredAdd &&
+      !promotionCard
+    ) {
+      console.warn(
+        `user is a previously approved an admin, but now has pending removals. Keeping html`
+      )
+      altText = `<h4 style="color:rgb(85, 74, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Promotion)</h4>`
+    }
+
+    if (
+      userConfirmedAdd &&
+      userPendingRemove &&
+      existingAdmin &&
+      userExpiredRem &&
+      !promotionCard
+    ) {
+      console.warn(
+        `user is a previously approved an admin, but now has pending removals. Keeping html`
+      )
+      altText = `<h4 style="color:rgb(198, 26, 13); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Demotion)</h4>`
+    }
+
+    // If user has a final "remove" and no pending additions or removals and no expired transactions
+    if (
+      confirmedRemove &&
+      !userPendingAdd &&
+      existingMinter &&
+      !existingAdmin &&
+      noExpired &&
+      !promotionCard
+    ) {
+      console.warn(
+        `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
+      )
+      cardColorCode = "rgb(29, 4, 6)"
+      altText = `<h4 style="color:rgb(73, 24, 24); margin-bottom: 0.5em;">DEMOTED from ADMIN</h4>`
+      actionsHtml = ""
+    }
+
+    if (
+      confirmedRemove &&
+      !userPendingAdd &&
+      existingMinter &&
+      !existingAdmin &&
+      userExpiredRem &&
+      !promotionCard
+    ) {
+      console.warn(
+        `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
+      )
+      cardColorCode = "rgb(29, 4, 6)"
+      altText = `<h4 style="color:rgb(170, 32, 48); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Demotion)</h4>`
+      actionsHtml = ""
+    }
+
+    if (
+      confirmedRemove &&
+      !userPendingAdd &&
+      existingMinter &&
+      !existingAdmin &&
+      userExpiredAdd &&
+      !promotionCard
+    ) {
+      console.warn(
+        `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
+      )
+      cardColorCode = "rgb(29, 4, 6)"
+      altText = `<h4 style="color:rgb(119, 170, 32); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Promotion)</h4>`
+      actionsHtml = ""
+    }
+
+    // If user has both final remove and pending add, do something else
+    if (
+      confirmedRemove &&
+      userPendingAdd &&
+      existingMinter &&
+      noExpired &&
+      promotionCard
+    ) {
+      console.warn(
+        `account was previously demoted, but also a pending re-add, allowing actions to show...`
+      )
+      altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...</h4>`
+    }
+
+    if (
+      confirmedRemove &&
+      userPendingAdd &&
+      existingMinter &&
+      userExpiredAdd &&
+      promotionCard
+    ) {
+      console.warn(
+        `account was previously demoted, but also a pending re-add, allowing actions to show...`
+      )
+      altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Promotion)</h4>`
+    }
+
+    if (
+      confirmedRemove &&
+      userPendingAdd &&
+      existingMinter &&
+      userExpiredRem &&
+      promotionCard
+    ) {
+      console.warn(
+        `account was previously demoted, but also a pending re-add, allowing actions to show...`
+      )
+      altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Demotion)</h4>`
+    }
+  } else if (verifiedName && illegalDuplicate) {
+    console.warn(
+      `illegalDuplicate detected (this card was somehow allowed to be published twice, keeping newest as active to prevent issues with old cards and updates, but displaying without actions...)`
+    )
+    cardColorCode = "rgb(82, 81, 81)"
+    // Kakashi Note: Typo fixed "DUPLICATE (diplayed for data only)"
+    altText = `<h4 style="color:rgb(21, 30, 39); margin-bottom: 0.5em;">DUPLICATE (displayed for data only)</h4>`
+    actionsHtml = ""
+  } else {
+    console.warn(`name could not be validated, not setting actionsHtml`)
+    actionsHtml = ""
+  }
+
+  return `
     <div class="admin-card" style="background-color: ${cardColorCode}">
       <div class="minter-card-header">
         <h2 class="support-header"> Created By: </h2>

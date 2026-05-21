@@ -33,6 +33,7 @@ const adminBoardSearchCache = {
   hasAllRange: false
 }
 const adminBoardDecryptedCardCache = new Map()
+const optimisticEncryptedCommentCache = new Map()
 // let kickTransactions = []
 // let banTransactions = []
 let adminBoardState = {
@@ -308,6 +309,8 @@ const adminRunWithConcurrency = async (tasks, concurrency = 8) => {
 
 const getAdminBoardResourceTimestamp = (resource) => resource?.updated || resource?.created || 0
 const getAdminBoardResourceCacheKey = (resource) => `${resource?.name || ""}::${resource?.identifier || ""}::${getAdminBoardResourceTimestamp(resource)}`
+const getAdminBoardResourceIdentityKey = (resource) => `${resource?.name || ""}::${resource?.identifier || ""}`
+const getOptimisticEncryptedCommentCacheKey = (publisherName, commentIdentifier) => `${publisherName || ""}::${commentIdentifier || ""}`
 
 const fetchCachedAdminSearchResources = async (dayRange, afterTime, forceSearch = false) => {
   if (forceSearch) {
@@ -358,6 +361,63 @@ const getDecryptedAdminCardCached = async (cardResource) => {
   const decryptedCardData = await decryptAndParseObject(cardDataResponse)
   adminBoardDecryptedCardCache.set(cacheKey, decryptedCardData)
   return decryptedCardData
+}
+
+const rememberOptimisticEncryptedComment = (cardIdentifier, publisherName, commentIdentifier, commentData, timestamp = Date.now()) => {
+  if (!cardIdentifier || !publisherName || !commentIdentifier || !commentData) return
+
+  const resource = {
+    name: publisherName,
+    service: "MAIL_PRIVATE",
+    identifier: commentIdentifier,
+    created: timestamp,
+    updated: timestamp,
+    _optimisticComment: true,
+    _cardIdentifier: cardIdentifier
+  }
+  optimisticEncryptedCommentCache.set(getOptimisticEncryptedCommentCacheKey(publisherName, commentIdentifier), {
+    cardIdentifier,
+    resource,
+    commentData: {
+      ...commentData,
+      _optimisticPending: true
+    }
+  })
+}
+
+const getOptimisticEncryptedComments = (cardIdentifier, existingResourcesByIdentity = new Map()) => {
+  const comments = []
+  for (const [cacheKey, entry] of optimisticEncryptedCommentCache.entries()) {
+    if (!entry || entry.cardIdentifier !== cardIdentifier || !entry.resource) continue
+
+    const identityKey = getAdminBoardResourceIdentityKey(entry.resource)
+    const existingResource = existingResourcesByIdentity.get(identityKey)
+    const existingTimestamp = getAdminBoardResourceTimestamp(existingResource)
+    const optimisticTimestamp = getAdminBoardResourceTimestamp(entry.resource)
+    if (existingResource && existingTimestamp >= optimisticTimestamp) {
+      optimisticEncryptedCommentCache.delete(cacheKey)
+      continue
+    }
+
+    comments.push(entry.resource)
+  }
+  return comments
+}
+
+const fetchEncryptedCommentData = async (commentResource) => {
+  const optimisticEntry = optimisticEncryptedCommentCache.get(getOptimisticEncryptedCommentCacheKey(commentResource?.name, commentResource?.identifier))
+  if (optimisticEntry?.commentData) {
+    return optimisticEntry.commentData
+  }
+
+  const commentDataResponse = await qortalRequest({
+    action: "FETCH_QDN_RESOURCE",
+    name: commentResource.name,
+    service: "MAIL_PRIVATE",
+    identifier: commentResource.identifier,
+    encoding: "base64",
+  })
+  return await decryptAndParseObject(commentDataResponse)
 }
 
 const detachAdminBoardInfiniteScroll = () => {
@@ -1112,11 +1172,12 @@ const publishEncryptedCard = async (isTopicModePassed = false) => {
 const getEncryptedCommentCount = async (cardIdentifier) => {
   try {
     const response = await searchSimple('MAIL_PRIVATE', `comment-${cardIdentifier}`, '', 0)
-    
-    return Array.isArray(response) ? response.length : 0
+    const fetchedComments = Array.isArray(response) ? response : []
+    const existingResourcesByIdentity = new Map(fetchedComments.map((comment) => [getAdminBoardResourceIdentityKey(comment), comment]))
+    return fetchedComments.length + getOptimisticEncryptedComments(cardIdentifier, existingResourcesByIdentity).length
   } catch (error) {
     console.error(`Error fetching comment count for ${cardIdentifier}:`, error)
-    return 0
+    return getOptimisticEncryptedComments(cardIdentifier).length
   }
 }
 
@@ -1160,7 +1221,23 @@ const postEncryptedComment = async (cardIdentifier) => {
       publicKeys: adminPublicKeys
     })
     // alert('Comment posted successfully!')
+    rememberOptimisticEncryptedComment(
+      cardIdentifier,
+      userState.accountName,
+      commentIdentifier,
+      commentData,
+      commentData.timestamp
+    )
     commentInput.value = ''
+    updateDisplayedEncryptedCommentCount(cardIdentifier, 1)
+    const commentsSection = document.getElementById(`comments-section-${cardIdentifier}`)
+    if (commentsSection && commentsSection.style.display === 'block') {
+      await displayEncryptedComments(cardIdentifier)
+      const commentButton = document.getElementById(`comment-button-${cardIdentifier}`)
+      if (commentButton) {
+        commentButton.textContent = 'HIDE COMMENTS'
+      }
+    }
     
   } catch (error) {
       console.error('Error posting comment:', error)
@@ -1168,16 +1245,29 @@ const postEncryptedComment = async (cardIdentifier) => {
   }
 }
 
+const updateDisplayedEncryptedCommentCount = (cardIdentifier, delta = 0) => {
+  const commentButton = document.getElementById(`comment-button-${cardIdentifier}`)
+  const currentCount = Number(commentButton?.dataset?.commentCount || 0)
+  const nextCount = Math.max(0, currentCount + delta)
+  if (commentButton) {
+    commentButton.dataset.commentCount = String(nextCount)
+    if (commentButton.textContent !== 'HIDE COMMENTS' && commentButton.textContent !== 'LOADING...') {
+      commentButton.textContent = `COMMENTS (${nextCount})`
+    }
+  }
+}
+
 //Fetch the comments for a card with passed card identifier ----------------------------
 const fetchEncryptedComments = async (cardIdentifier) => {
   try {
     const response = await searchSimple('MAIL_PRIVATE', `comment-${cardIdentifier}`, '', 0, 0, '', false)
-    if (response) {
-      return response
-    }
+    const fetchedComments = Array.isArray(response) ? response : []
+    const existingResourcesByIdentity = new Map(fetchedComments.map((comment) => [getAdminBoardResourceIdentityKey(comment), comment]))
+    const optimisticComments = getOptimisticEncryptedComments(cardIdentifier, existingResourcesByIdentity)
+    return [...optimisticComments, ...fetchedComments].sort((a, b) => getAdminBoardResourceTimestamp(a) - getAdminBoardResourceTimestamp(b))
   } catch (error) {
     console.error(`Error fetching comments for ${cardIdentifier}:`, error)
-    return []
+    return getOptimisticEncryptedComments(cardIdentifier)
   }
 }
 
@@ -1193,21 +1283,16 @@ const displayEncryptedComments = async (cardIdentifier) => {
     const commentHTMLArray = await Promise.all(
       comments.map(async (comment) => {
         try {
-          const commentDataResponse = await qortalRequest({
-            action: "FETCH_QDN_RESOURCE",
-            name: comment.name,
-            service: "MAIL_PRIVATE",
-            identifier: comment.identifier,
-            encoding: "base64",
-          })
-
-          const decryptedCommentData = await decryptAndParseObject(commentDataResponse)
+          const decryptedCommentData = await fetchEncryptedCommentData(comment)
           const timestampCheck = comment.updated || comment.created || 0
           const timestamp = await timestampToHumanReadableDate(timestampCheck)
           // Kakashi Note: Encrypted comment fields are escaped before render to prevent markup injection in admin discussions.
           const safeCommenter = qEscapeHtml(decryptedCommentData.creator)
           const safeCommentContent = qEscapeHtml(decryptedCommentData.content).replace(/\n/g, '<br>')
           const safeTimestamp = qEscapeHtml(timestamp)
+          const optimisticNotice = decryptedCommentData._optimisticPending
+            ? `<p class="board-progress-muted" style="color: #ffd27d;"><i>Published locally. Waiting for QDN indexing.</i></p>`
+            : ""
 
           const commenter = decryptedCommentData.creator
           const voterInfo = voterMap.get(commenter)
@@ -1235,6 +1320,7 @@ const displayEncryptedComments = async (cardIdentifier) => {
               </p>
               <p>${safeCommentContent}</p>
               <p><i>${safeTimestamp}</i></p>
+              ${optimisticNotice}
             </div>
           `
         } catch (err) {

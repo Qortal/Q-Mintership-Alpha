@@ -1,272 +1,463 @@
 <!DOCTYPE html>
-<html  >
-    <head>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
-        <meta charset="UTF-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        
-        <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
-        <link rel="shortcut icon" href="assets/images/modded-circle-2-new-128x128.png" type="image/x-icon">
-        <meta name="description" content="Welcome to the Mintership Forum (alpha version)">
-        
-        
-        <title>Home</title>
-        <link rel="stylesheet" href="assets/web/assets/mobirise-icons2/mobirise2.css">
-        <link rel="stylesheet" href="assets/web/assets/mobirise-icons/mobirise-icons.css">
-        <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css">
-        <link rel="stylesheet" href="assets/bootstrap/css/bootstrap-grid.min.css">
-        <link rel="stylesheet" href="assets/bootstrap/css/bootstrap-reboot.min.css">
-        <link rel="stylesheet" href="assets/parallax/jarallax.css">
-        <link rel="stylesheet" href="assets/animatecss/animate.css">
-        <link rel="stylesheet" href="assets/dropdown/css/style.css">
-        <link rel="stylesheet" href="assets/socicon/css/styles.css">
-        <link rel="stylesheet" href="assets/theme/css/style.css">
-        <link rel="preload" as="style" href="assets/mobirise/css/mbr-additional.css?v=U9lZDZ"><link rel="stylesheet" href="assets/mobirise/css/mbr-additional.css?v=U9lZDZ" type="text/css">
-        <link rel="stylesheet" href="./assets/css/forum-styles.css">
-        <link rel="preload" href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
-        <noscript><link rel="stylesheet" href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap"></noscript>
-        <link rel="preload" href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
-        <noscript><link rel="stylesheet" href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap"></noscript>
-        <link href="./assets/quill/quill.snow.css" rel="stylesheet">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1"
+    />
+    <link
+      rel="shortcut icon"
+      href="assets/images/modded-circle-2-new-128x128.png"
+      type="image/x-icon"
+    />
+    <meta
+      name="description"
+      content="Welcome to the Mintership Forum (alpha version)"
+    />
 
-        
-    </head>
-<body>
+    <title>Home</title>
+    <link
+      rel="stylesheet"
+      href="assets/web/assets/mobirise-icons2/mobirise2.css"
+    />
+    <link
+      rel="stylesheet"
+      href="assets/web/assets/mobirise-icons/mobirise-icons.css"
+    />
+    <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="assets/bootstrap/css/bootstrap-grid.min.css" />
+    <link
+      rel="stylesheet"
+      href="assets/bootstrap/css/bootstrap-reboot.min.css"
+    />
+    <link rel="stylesheet" href="assets/parallax/jarallax.css" />
+    <link rel="stylesheet" href="assets/animatecss/animate.css" />
+    <link rel="stylesheet" href="assets/dropdown/css/style.css" />
+    <link rel="stylesheet" href="assets/socicon/css/styles.css" />
+    <link rel="stylesheet" href="assets/theme/css/style.css" />
+    <link
+      rel="preload"
+      as="style"
+      href="assets/mobirise/css/mbr-additional.css?v=U9lZDZ"
+    />
+    <link
+      rel="stylesheet"
+      href="assets/mobirise/css/mbr-additional.css?v=U9lZDZ"
+      type="text/css"
+    />
+    <link rel="stylesheet" href="./assets/css/forum-styles.css" />
+    <link
+      rel="preload"
+      href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript
+      ><link
+        rel="stylesheet"
+        href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap"
+    /></noscript>
+    <link
+      rel="preload"
+      href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript
+      ><link
+        rel="stylesheet"
+        href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap"
+    /></noscript>
+    <link href="./assets/quill/quill.snow.css" rel="stylesheet" />
+  </head>
+  <body>
     <script>
-        // Variable-based versioning (credit: QuickMythril).
-        // Kakashi Note: Keep the release label centralized so test builds can be updated in one place.
-        const Q_MINTERSHIP_VERSION = "v2.0.1b" // Update here in the future
-        document.addEventListener("DOMContentLoaded", () => {
-          // Kakashi Note: Populate all version slots so mobile and desktop headers stay in sync.
-          document.querySelectorAll(".version").forEach((el) => {
-            el.textContent = Q_MINTERSHIP_VERSION
-          })
+      // Variable-based versioning (credit: QuickMythril).
+      // Kakashi Note: Keep the release label centralized so test builds can be updated in one place.
+      const Q_MINTERSHIP_VERSION = "v2.2b" // Update here in the future
+      document.addEventListener("DOMContentLoaded", () => {
+        // Kakashi Note: Populate all version slots so mobile and desktop headers stay in sync.
+        document.querySelectorAll(".version").forEach((el) => {
+          el.textContent = Q_MINTERSHIP_VERSION
         })
+      })
     </script>
-  
-  <section data-bs-version="5.1" class="menu menu1 boldm5 cid-ttRnktJ11Q" once="menu" id="menu1-0">
 
-    <nav class="navbar navbar-dropdown navbar-expand-lg">
+    <section
+      data-bs-version="5.1"
+      class="menu menu1 boldm5 cid-ttRnktJ11Q"
+      once="menu"
+      id="menu1-0"
+    >
+      <nav class="navbar navbar-dropdown navbar-expand-lg">
         <div class="menu_box container-fluid">
-            <div class="navbar-brand d-flex d-lg-none">
-                <span class="navbar-logo">
-                    <a href="index.html">
-                        <img src="assets/images/logo.png" alt="">
-                    </a>
-                </span>
-                <span class="navbar-caption-wrap">
-                    <a class="navbar-caption display-4" href="index.html"><span class="navbar-caption display-4 app-title">Q-Mintership</span>
-                        <!-- Kakashi Note: Version slot for mobile header. -->
-                        <span class="navbar-caption display-7 version" style="display:block; color:rgb(126, 177, 188);"></span>
-                    </a>
-                </span>
+          <div class="navbar-brand d-flex d-lg-none">
+            <span class="navbar-logo">
+              <a href="index.html">
+                <img src="assets/images/logo.png" alt="" />
+              </a>
+            </span>
+            <span class="navbar-caption-wrap">
+              <a class="navbar-caption display-4" href="index.html"
+                ><span class="navbar-caption display-4 app-title"
+                  >Q-Mintership</span
+                >
+                <!-- Kakashi Note: Version slot for mobile header. -->
+                <span
+                  class="navbar-caption display-7 version"
+                  style="display: block; color: rgb(126, 177, 188)"
+                ></span>
+              </a>
+            </span>
+          </div>
+          <button
+            class="navbar-toggler"
+            type="button"
+            data-toggle="collapse"
+            data-bs-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            data-bs-target="#navbarSupportedContent"
+            aria-controls="navbarNavAltMarkup"
+            aria-expanded="false"
+            aria-label="Toggle navigation"
+          >
+            <div class="hamburger">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
             </div>
-            <button class="navbar-toggler" type="button" data-toggle="collapse" data-bs-toggle="collapse" data-target="#navbarSupportedContent" data-bs-target="#navbarSupportedContent" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
-                <div class="hamburger">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                <div class="navbar-brand d-none d-lg-flex">
-                <span class="navbar-logo">
-                    <a href="index.html">
-                        <img src="assets/images/again-edited-qortal-minting-icon-156x156.png" alt="">
-                    </a>
-                </span>
-                    <span class="navbar-caption-wrap"><a class="navbar-caption text-primary display-4" href="index.html"><span class="navbar-caption display-4 app-title">Q-Mintership</span><br><!-- Kakashi Note: Version slot for desktop header. --><span class="navbar-caption display-7 version" style="color:rgb(126, 177, 188);"></span></a></span>
-                </div>
-                <ul class="navbar-nav nav-dropdown" data-app-modern-menu="true"><li class="nav-item"><a class="nav-link link text-primary display-7" href="MINTERSHIP-FORUM"></a></li></ul>
-                
-
-                <div class="mbr-section-btn-main" role="tablist"><a class="btn btn-danger display-4" href="MINTERSHIP-FORUM">FORUM<br></a> <a class="btn admin-btn btn-secondary display-4" href="TOOLS">ADMIN TOOLS</a><a class="btn admin-btn btn-secondary display-4" href="ADMINBOARD">ADMIN BOARD</a><a class="btn btn-danger display-4" href="MINTERS">MINTER BOARD</a><a class="btn btn-danger display-4" href="ADDREMOVEADMIN">MAM BOARD</a></div>
-                
-            </div>
-        </div>
-    </nav>
-
-</section>
-
-<section data-bs-version="5.1" class="features7 boldm5 cid-ttRnAijqXt" id="features7-6">
-
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col-12 col-lg-6 col-md-6 item features-image active">
-                <a class="item-link" href="ADMINBOARD">
-                    <div class="item-wrapper">
-                        <img src="assets/images/mbr-1623x1082.jpg" alt="Admin Board" data-slide-to="1" data-bs-slide-to="1">
-                        <div class="item-content">
-                            <h2 class="card-title mbr-fonts-style display-2">
-                                ADMIN BOARD</h2>
-                        </div>
-                    </div>
+          </button>
+          <div class="collapse navbar-collapse" id="navbarSupportedContent">
+            <div class="navbar-brand d-none d-lg-flex">
+              <span class="navbar-logo">
+                <a href="index.html">
+                  <img
+                    src="assets/images/again-edited-qortal-minting-icon-156x156.png"
+                    alt=""
+                  />
                 </a>
-            </div><div class="col-12 col-lg-6 col-md-6 item features-image">
-                <a class="item-link" href="MINTERS">
-                    <div class="item-wrapper">
-                        <img src="assets/images/mbr-1623x1112.jpg" alt="Mintership Forum" data-slide-to="0" data-bs-slide-to="0">
-                        <div class="item-content">
-                            <h2 class="card-title mbr-fonts-style display-2">MINTER BOARD</h2>
-                        </div>
-                    </div>
-                </a>
+              </span>
+              <span class="navbar-caption-wrap"
+                ><a
+                  class="navbar-caption text-primary display-4"
+                  href="index.html"
+                  ><span class="navbar-caption display-4 app-title"
+                    >Q-Mintership</span
+                  ><br /><!-- Kakashi Note: Version slot for desktop header. --><span
+                    class="navbar-caption display-7 version"
+                    style="color: rgb(126, 177, 188)"
+                  ></span></a
+              ></span>
             </div>
-        </div>
-    </div>
+            <ul class="navbar-nav nav-dropdown" data-app-modern-menu="true">
+              <li class="nav-item">
+                <a
+                  class="nav-link link text-primary display-7"
+                  href="MINTERSHIP-FORUM"
+                ></a>
+              </li>
+            </ul>
 
-    <div class="container-fluid">
+            <div class="mbr-section-btn-main" role="tablist">
+              <a class="btn btn-danger display-4" href="MINTERSHIP-FORUM"
+                >FORUM<br
+              /></a>
+              <a class="btn admin-btn btn-secondary display-4" href="TOOLS"
+                >ADMIN TOOLS</a
+              ><a
+                class="btn admin-btn btn-secondary display-4"
+                href="ADMINBOARD"
+                >ADMIN BOARD</a
+              ><a class="btn btn-danger display-4" href="MINTERS"
+                >MINTER BOARD</a
+              ><a class="btn btn-danger display-4" href="ADDREMOVEADMIN"
+                >MAM BOARD</a
+              >
+            </div>
+          </div>
+        </div>
+      </nav>
+    </section>
+
+    <section
+      data-bs-version="5.1"
+      class="features7 boldm5 cid-ttRnAijqXt"
+      id="features7-6"
+    >
+      <div class="container-fluid">
         <div class="row">
-            <div class="col-12 col-lg-6 col-md-6 item features-image active">
-                <a class="item-link" href="ADDREMOVEADMIN">
-                    <div class="item-wrapper">
-                        <img src="assets/images/mbr-1818x1212.jpg" alt="Admin Board" data-slide-to="1" data-bs-slide-to="1">
-                        <div class="item-content">
-                            <h2 class="card-title mbr-fonts-style display-2">
-                               MAM BOARD</h2>
-                        </div>
-                    </div>
-                </a>
-            </div><div class="col-12 col-lg-6 col-md-6 item features-image">
-                <a class="item-link" href="MINTERSHIP-FORUM">
-                    <div class="item-wrapper">
-                        <img src="assets/images/mbr-1-1818x1212.jpg" alt="Mintership Forum" data-slide-to="0" data-bs-slide-to="0">
-                        <div class="item-content">
-                            <h2 class="card-title mbr-fonts-style display-2">Q-MINTERSHIP FORUM</h2>
-                        </div>
-                    </div>
-                </a>
-            </div>
+          <div class="col-12 col-lg-6 col-md-6 item features-image active">
+            <a class="item-link" href="ADMINBOARD">
+              <div class="item-wrapper">
+                <img
+                  src="assets/images/mbr-1623x1082.jpg"
+                  alt="Admin Board"
+                  data-slide-to="1"
+                  data-bs-slide-to="1"
+                />
+                <div class="item-content">
+                  <h2 class="card-title mbr-fonts-style display-2">
+                    ADMIN BOARD
+                  </h2>
+                </div>
+              </div>
+            </a>
+          </div>
+          <div class="col-12 col-lg-6 col-md-6 item features-image">
+            <a class="item-link" href="MINTERS">
+              <div class="item-wrapper">
+                <img
+                  src="assets/images/mbr-1623x1112.jpg"
+                  alt="Mintership Forum"
+                  data-slide-to="0"
+                  data-bs-slide-to="0"
+                />
+                <div class="item-content">
+                  <h2 class="card-title mbr-fonts-style display-2">
+                    MINTER BOARD
+                  </h2>
+                </div>
+              </div>
+            </a>
+          </div>
         </div>
-    </div>
+      </div>
 
-</section>
-
-
-<section data-bs-version="5.1" class="features1 boldm5 cid-utzh0dnVQB cid-ttRnlSkg2R" id="features1-2">
-    
-    <div class="container">
+      <div class="container-fluid">
         <div class="row">
-            
-            <div class="col-12 col-lg-4">
-                <div class="card-wrapper" style="justify-content:center;">
-                    <div class="icon-wrapper">
-                        <span class="mbr-iconfont mbr-iconfont-btn mbri-file" style="color:aliceblue;"></span>
-                    </div>
-                    <h3 class="mbr-section-title mbr-fonts-style display-2">
-                        Community Forum</h3>
-                    <p class="mbr-text mbr-fonts-style display-7">
-                        Learn more about the Mintership concept, and why it was needed. The days of 'sponsorship' are a thing of the past on the Qortal Network. No more will there be the ability to self-sponsor. A new era of Qortal begins! Join the conversation with the other minters and admins here!</p>
-                        <div class="icon-wrapper"><a class="btn btn-primary display-4" style="-ms-flex-align: center;" href="MINTERSHIP-FORUM">FORUM</a></div>
+          <div class="col-12 col-lg-6 col-md-6 item features-image active">
+            <a class="item-link" href="ADDREMOVEADMIN">
+              <div class="item-wrapper">
+                <img
+                  src="assets/images/mbr-1818x1212.jpg"
+                  alt="Admin Board"
+                  data-slide-to="1"
+                  data-bs-slide-to="1"
+                />
+                <div class="item-content">
+                  <h2 class="card-title mbr-fonts-style display-2">
+                    MAM BOARD
+                  </h2>
                 </div>
-            </div>
-            <div class="col-12 col-lg-4">
-                <div class="card-wrapper">
-                    <div class="icon-wrapper">
-                        <span class="mbr-iconfont mbr-iconfont-btn mbri-key" style="color:aliceblue;"></span>
-                    </div>
-                    <h3 class="mbr-section-title mbr-fonts-style display-2">Become A Minter</h3>
-                    <p class="mbr-text mbr-fonts-style display-7">
-                        Not already minting? You've come to the right place to get started. The '<a href="MINTERS">MINTERS</a>.' links will take you to the 'Minter Board'. The Minter Board is a place to publish your intent to become a minter, and get support from the existing minters and Minter Admins.</p>
-                        <div class="icon-wrapper"><a class="btn btn-primary display-4" style="-ms-flex-align: center;" href="MINTERS">MINTER BOARD</a></div>
+              </div>
+            </a>
+          </div>
+          <div class="col-12 col-lg-6 col-md-6 item features-image">
+            <a class="item-link" href="MINTERSHIP-FORUM">
+              <div class="item-wrapper">
+                <img
+                  src="assets/images/mbr-1-1818x1212.jpg"
+                  alt="Mintership Forum"
+                  data-slide-to="0"
+                  data-bs-slide-to="0"
+                />
+                <div class="item-content">
+                  <h2 class="card-title mbr-fonts-style display-2">
+                    Q-MINTERSHIP FORUM
+                  </h2>
                 </div>
-            </div>
-            <div class="col-12 col-lg-4">
-                <div class="card-wrapper">
-                    <div class="icon-wrapper">
-                        <span class="mbr-iconfont mbr-iconfont-btn mbri-extension" style="color:aliceblue;"></span>
-                    </div>
-                    <h3 class="mbr-section-title mbr-fonts-style display-2">Admin Board</h3>
-                    <p class="mbr-text mbr-fonts-style display-7">
-                        Make decisions together with the other admins on the Admin Board. The admin board is a FULLY ENCRYPTED decision-making board for the Mintership Admins. This board allows publishing 'cards' just like the Minter Board, but with two types of cards. Check out the Admin Board Here!</p>
-                        <div class="icon-wrapper"><a class="btn btn-primary display-4" style="-ms-flex-align: center;" href="ADMINBOARD">ADMIN BOARD</a></div>
-                </div>
-            </div>
+              </div>
+            </a>
+          </div>
         </div>
-    </div>
-</section>
+      </div>
+    </section>
 
-
-<section data-bs-version="5.1" class="content3 boldm5 cid-uu3bTy9Zr1" id="content3-4">
-    
-    <div class="container-fluid">
+    <section
+      data-bs-version="5.1"
+      class="features1 boldm5 cid-utzh0dnVQB cid-ttRnlSkg2R"
+      id="features1-2"
+    >
+      <div class="container">
         <div class="row">
-            <div class="col-12 card">
-                <div class="title-wrapper">
-                    <h2 class="mbr-section-title mbr-fonts-style display-1">
-                        Updates and information</h2>
-                </div>
-                
+          <div class="col-12 col-lg-4">
+            <div class="card-wrapper" style="justify-content: center">
+              <div class="icon-wrapper">
+                <span
+                  class="mbr-iconfont mbr-iconfont-btn mbri-file"
+                  style="color: aliceblue"
+                ></span>
+              </div>
+              <h3 class="mbr-section-title mbr-fonts-style display-2">
+                Community Forum
+              </h3>
+              <p class="mbr-text mbr-fonts-style display-7">
+                Learn more about the Mintership concept, and why it was needed.
+                The days of 'sponsorship' are a thing of the past on the Qortal
+                Network. No more will there be the ability to self-sponsor. A
+                new era of Qortal begins! Join the conversation with the other
+                minters and admins here!
+              </p>
+              <div class="icon-wrapper">
+                <a
+                  class="btn btn-primary display-4"
+                  style="-ms-flex-align: center"
+                  href="MINTERSHIP-FORUM"
+                  >FORUM</a
+                >
+              </div>
             </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <div class="card-wrapper">
+              <div class="icon-wrapper">
+                <span
+                  class="mbr-iconfont mbr-iconfont-btn mbri-key"
+                  style="color: aliceblue"
+                ></span>
+              </div>
+              <h3 class="mbr-section-title mbr-fonts-style display-2">
+                Become A Minter
+              </h3>
+              <p class="mbr-text mbr-fonts-style display-7">
+                Not already minting? You've come to the right place to get
+                started. The '<a href="MINTERS">MINTERS</a>.' links will take
+                you to the 'Minter Board'. The Minter Board is where established
+                level 5+ minters can nominate candidates for minting rights, and
+                where existing minters and Minter Admins can review and support
+                those nominations.
+              </p>
+              <div class="icon-wrapper">
+                <a
+                  class="btn btn-primary display-4"
+                  style="-ms-flex-align: center"
+                  href="MINTERS"
+                  >MINTER BOARD</a
+                >
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <div class="card-wrapper">
+              <div class="icon-wrapper">
+                <span
+                  class="mbr-iconfont mbr-iconfont-btn mbri-extension"
+                  style="color: aliceblue"
+                ></span>
+              </div>
+              <h3 class="mbr-section-title mbr-fonts-style display-2">
+                Admin Board
+              </h3>
+              <p class="mbr-text mbr-fonts-style display-7">
+                Make decisions together with the other admins on the Admin
+                Board. The admin board is a FULLY ENCRYPTED decision-making
+                board for the Mintership Admins. This board allows publishing
+                'cards' just like the Minter Board, but with two types of cards.
+                Check out the Admin Board Here!
+              </p>
+              <div class="icon-wrapper">
+                <a
+                  class="btn btn-primary display-4"
+                  style="-ms-flex-align: center"
+                  href="ADMINBOARD"
+                  >ADMIN BOARD</a
+                >
+              </div>
+            </div>
+          </div>
         </div>
-    </div>
-</section>
+      </div>
+    </section>
 
-<section data-bs-version="5.1" class="content7 boldm5 cid-uufIRKtXOO" id="content7-6">
-
-    <div class="container">
+    <section
+      data-bs-version="5.1"
+      class="content3 boldm5 cid-uu3bTy9Zr1"
+      id="content3-4"
+    >
+      <div class="container-fluid">
         <div class="row">
-            <div class="col-12 col-lg-7 card">
-                <div class="title-wrapper">
-                    <h2 class="mbr-section-title mbr-fonts-style display-2 app-title">Q-Mintership</h2>
-                </div>
+          <div class="col-12 card">
+            <div class="title-wrapper">
+              <h2 class="mbr-section-title mbr-fonts-style display-1">
+                Updates and information
+              </h2>
             </div>
-            <div class="col-12 col-lg-5 card">
-                <div class="text-wrapper">
-                    <p class="mbr-text mbr-fonts-style display-7">
-                        <!-- <b class="version"><u>v1.06.4b</u></b>- <b>various improvements</b> - See post in the <a href="MINTERSHIP-FORUM">FORUM</a> for RELEASE NOTES. -->
-                    </p>
-                </div>
-            </div>
+          </div>
         </div>
-    </div>
+      </div>
+    </section>
 
-    
-</section>
-
-
-<section data-bs-version="5.1" class="footer1 visualm5 cid-uhGd4SVHZK" once="footers" id="footer1-1">
-
-    <div class="container-fluid">
+    <section
+      data-bs-version="5.1"
+      class="content7 boldm5 cid-uufIRKtXOO"
+      id="content7-6"
+    >
+      <div class="container">
         <div class="row">
-            <div class="col-12 col-lg-6">
-                <div class="title-wrapper">
-                    <div class="title-wrap">
-                        <img src="assets/images/again-edited-qortal-minting-icon-156x156.png" alt="">
-                        <h2 class="mbr-section-title mbr-fonts-style display-5"><span class="navbar-caption display-4 app-title">Q-Mintership</span></h2>
-                    </div>
-                </div>
-                
-                <a class="link-wrap" href="#">
-                    <p class="mbr-link mbr-fonts-style display-4"><span class="navbar-caption display-4 app-title">Q-Mintership</span></p>
-                </a>
+          <div class="col-12 col-lg-7 card">
+            <div class="title-wrapper">
+              <h2 class="mbr-section-title mbr-fonts-style display-2 app-title">
+                Q-Mintership
+              </h2>
             </div>
-            <div class="col-12 col-lg-6">
-                
+          </div>
+          <div class="col-12 col-lg-5 card">
+            <div class="text-wrapper">
+              <p class="mbr-text mbr-fonts-style display-7">
+                <!-- <b class="version"><u>v1.06.4b</u></b>- <b>various improvements</b> - See post in the <a href="MINTERSHIP-FORUM">FORUM</a> for RELEASE NOTES. -->
+              </p>
             </div>
-            <div class="col-12">
-                
-            </div>
+          </div>
         </div>
-    </div>
-</section>
+      </div>
+    </section>
 
-<script src="./assets/bootstrap/js/bootstrap.bundle.min.js"></script>
-<script src="./assets/parallax/jarallax.js"></script>
-<!-- <script src="./assets/smoothscroll/smooth-scroll.js"></script> -->
-<script src="./assets/ytplayer/index.js"></script>
-<script src="./assets/dropdown/js/navbar-dropdown.js"></script>
-<script src="./assets/theme/js/script.js"></script>
-<script src="./assets/quill/quill.min.js"></script>
-<!-- Order here MATTERS, we MUST load the scripts in the correct order so that all the functions will work properly -->
-<script src="./assets/js/QortalApi.js"></script>
-<script src="./assets/js/Shared.js"></script>
-<script src="./assets/js/MinterBoard.js"></script>
-<script src="./assets/js/AdminBoard.js"></script>
-<script src="./assets/js/ARBoard.js"></script>
-<script src="./assets/js/AdminTools.js"></script>
-<script src="./assets/js/Q-Mintership.js"></script>
-  <input name="animation" type="hidden">
+    <section
+      data-bs-version="5.1"
+      class="footer1 visualm5 cid-uhGd4SVHZK"
+      once="footers"
+      id="footer1-1"
+    >
+      <div class="container-fluid">
+        <div class="row">
+          <div class="col-12 col-lg-6">
+            <div class="title-wrapper">
+              <div class="title-wrap">
+                <img
+                  src="assets/images/again-edited-qortal-minting-icon-156x156.png"
+                  alt=""
+                />
+                <h2 class="mbr-section-title mbr-fonts-style display-5">
+                  <span class="navbar-caption display-4 app-title"
+                    >Q-Mintership</span
+                  >
+                </h2>
+              </div>
+            </div>
+
+            <a class="link-wrap" href="#">
+              <p class="mbr-link mbr-fonts-style display-4">
+                <span class="navbar-caption display-4 app-title"
+                  >Q-Mintership</span
+                >
+              </p>
+            </a>
+          </div>
+          <div class="col-12 col-lg-6"></div>
+          <div class="col-12"></div>
+        </div>
+      </div>
+    </section>
+
+    <script src="./assets/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="./assets/parallax/jarallax.js"></script>
+    <!-- <script src="./assets/smoothscroll/smooth-scroll.js"></script> -->
+    <script src="./assets/ytplayer/index.js"></script>
+    <script src="./assets/dropdown/js/navbar-dropdown.js"></script>
+    <script src="./assets/theme/js/script.js"></script>
+    <script src="./assets/quill/quill.min.js"></script>
+    <!-- Order here MATTERS, we MUST load the scripts in the correct order so that all the functions will work properly -->
+    <script src="./assets/js/QortalApi.js"></script>
+    <script src="./assets/js/Shared.js"></script>
+    <script src="./assets/js/MinterBoard.js"></script>
+    <script src="./assets/js/AdminBoard.js"></script>
+    <script src="./assets/js/ARBoard.js"></script>
+    <script src="./assets/js/AdminTools.js"></script>
+    <script src="./assets/js/Q-Mintership.js"></script>
+    <input name="animation" type="hidden" />
   </body>
 </html>

@@ -10,7 +10,7 @@ let currentPage = 0 // Track current pagination page
 let existingIdentifiers = new Set() // Keep track of existing identifiers to not pull them more than once.
 
 let messagesById = {}
-let messageOrder =[]
+let messageOrder = []
 const MAX_MESSAGES = 2000
 // Key = message.identifier
 // Value = { ...the message object with timestamp, name, content, etc. }
@@ -48,12 +48,12 @@ function loadMessagesFromLocalStorage() {
     const stored = localStorage.getItem("forumMessages")
     if (!stored) {
       console.log("No saved messages in localStorage.")
-      return;
+      return
     }
-    const parsed = JSON.parse(stored);
+    const parsed = JSON.parse(stored)
     if (parsed.messagesById && parsed.messageOrder) {
-      messagesById = parsed.messagesById;
-      messageOrder = parsed.messageOrder;
+      messagesById = parsed.messagesById
+      messageOrder = parsed.messageOrder
       console.log(`Loaded ${messageOrder.length} messages from localStorage.`)
     }
   } catch (error) {
@@ -62,7 +62,9 @@ function loadMessagesFromLocalStorage() {
 }
 
 if (localStorage.getItem("latestMessageIdentifiers")) {
-  latestMessageIdentifiers = JSON.parse(localStorage.getItem("latestMessageIdentifiers"))
+  latestMessageIdentifiers = JSON.parse(
+    localStorage.getItem("latestMessageIdentifiers")
+  )
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -70,63 +72,86 @@ document.addEventListener("DOMContentLoaded", async () => {
   createScrollToTopButton()
 
   // --- GENERAL LINKS (MINTERSHIP-FORUM and MINTER-BOARD) ---
-  const mintershipForumLinks = document.querySelectorAll('a[href="MINTERSHIP-FORUM"]')
-  mintershipForumLinks.forEach(link => {
-    link.addEventListener('click', async (event) => {
+  const mintershipForumLinks = document.querySelectorAll(
+    'a[href="MINTERSHIP-FORUM"]'
+  )
+  mintershipForumLinks.forEach((link) => {
+    link.addEventListener("click", async (event) => {
       event.preventDefault()
       if (!userState.isLoggedIn) {
         await login()
       }
-      await loadForumPage();
+      await loadForumPage()
       loadRoomContent("general")
       startPollingForNewMessages()
       createScrollToTopButton()
     })
   })
 
-  const minterBoardLinks = document.querySelectorAll('a[href="MINTER-BOARD"], a[href="MINTERS"]')
-  minterBoardLinks.forEach(link => {
+  const minterBoardLinks = document.querySelectorAll(
+    'a[href="MINTER-BOARD"], a[href="MINTERS"]'
+  )
+  minterBoardLinks.forEach((link) => {
     link.addEventListener("click", async (event) => {
-      event.preventDefault();
+      event.preventDefault()
       if (!userState.isLoggedIn) {
         await login()
       }
       if (typeof loadMinterBoardPage === "undefined") {
-        console.log("loadMinterBoardPage not found, loading script dynamically...")
+        console.log(
+          "loadMinterBoardPage not found, loading script dynamically..."
+        )
         await loadScript("./assets/js/MinterBoard.js")
       }
       await loadMinterBoardPage()
     })
   })
 
-  const addRemoveAdminLinks = document.querySelectorAll('a[href="ADDREMOVEADMIN"]')
-  addRemoveAdminLinks.forEach(link => {
-    link.addEventListener('click', async (event) => {
+  const addRemoveAdminLinks = document.querySelectorAll(
+    'a[href="ADDREMOVEADMIN"]'
+  )
+  addRemoveAdminLinks.forEach((link) => {
+    link.addEventListener("click", async (event) => {
       event.preventDefault()
       // Possibly require user to login if not logged
       if (!userState.isLoggedIn) {
         await login()
       }
       if (typeof loadMinterBoardPage === "undefined") {
-        console.log("loadMinterBoardPage not found, loading script dynamically...")
+        console.log(
+          "loadMinterBoardPage not found, loading script dynamically..."
+        )
         await loadScript("./assets/js/MinterBoard.js")
       }
       await loadAddRemoveAdminPage()
     })
   })
-    
 
   // --- ADMIN CHECK ---
   await verifyUserIsAdmin()
 
-  if (userState.isAdmin && (localStorage.getItem('savedAdminData'))) {
-    console.log('saved admin data found (Q-Mintership.js), loading...')
-    const adminData = localStorage.getItem('savedAdminData')
+  if (userState.isAdmin && localStorage.getItem("savedAdminData")) {
+    console.log("saved admin data found (Q-Mintership.js), loading...")
+    const adminData = localStorage.getItem("savedAdminData")
     const parsedAdminData = JSON.parse(adminData)
-    if (!adminPublicKeys || adminPublicKeys.length === 0 || !Array.isArray(adminPublicKeys)) {
-      console.log('no adminPublicKey variable data found and/or data did not pass checks, using fetched localStorage data...',adminPublicKeys)
-      if (parsedAdminData.publicKeys.length === 0 || !parsedAdminData.publicKeys || !Array.isArray(parsedAdminData.publicKeys)) {
-        console.log('loaded data from localStorage also did not pass checks... fetching from API...',parsedAdminData.publicKeys)
+    if (
+      !adminPublicKeys ||
+      adminPublicKeys.length === 0 ||
+      !Array.isArray(adminPublicKeys)
+    ) {
+      console.log(
+        "no adminPublicKey variable data found and/or data did not pass checks, using fetched localStorage data...",
+        adminPublicKeys
+      )
+      if (
+        parsedAdminData.publicKeys.length === 0 ||
+        !parsedAdminData.publicKeys ||
+        !Array.isArray(parsedAdminData.publicKeys)
+      ) {
+        console.log(
+          "loaded data from localStorage also did not pass checks... fetching from API...",
+          parsedAdminData.publicKeys
+        )
         adminPublicKeys = await fetchAdminGroupsMembersPublicKeys()
       } else {
         adminPublicKeys = parsedAdminData.publicKeys
@@ -138,15 +163,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.log(`User is an Admin. Admin-specific buttons will remain visible.`)
 
     // DATA-BOARD Links for Admins
-    const minterDataBoardLinks = document.querySelectorAll('a[href="ADMINBOARD"]')
-    minterDataBoardLinks.forEach(link => {
+    const minterDataBoardLinks = document.querySelectorAll(
+      'a[href="ADMINBOARD"]'
+    )
+    minterDataBoardLinks.forEach((link) => {
       link.addEventListener("click", async (event) => {
         event.preventDefault()
         if (!userState.isLoggedIn) {
           await login()
         }
         if (typeof loadAdminBoardPage === "undefined") {
-          console.log("loadAdminBoardPage function not found, loading script dynamically...")
+          console.log(
+            "loadAdminBoardPage function not found, loading script dynamically..."
+          )
           await loadScript("./assets/js/AdminBoard.js")
         }
         await loadAdminBoardPage()
@@ -155,40 +184,45 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // TOOLS Links for Admins
     const toolsLinks = document.querySelectorAll('a[href="TOOLS"]')
-    toolsLinks.forEach(link => {
-      link.addEventListener('click', async (event) => {
+    toolsLinks.forEach((link) => {
+      link.addEventListener("click", async (event) => {
         event.preventDefault()
         if (!userState.isLoggedIn) {
           await login()
         }
         if (typeof loadMinterAdminToolsPage === "undefined") {
-          console.log("loadMinterAdminToolsPage function not found, loading script dynamically...")
+          console.log(
+            "loadMinterAdminToolsPage function not found, loading script dynamically..."
+          )
           await loadScript("./assets/js/AdminTools.js")
         }
         await loadMinterAdminToolsPage()
       })
     })
-
   } else {
     console.log("User is NOT an Admin. Removing admin-specific links.")
-    
+
     // Remove all admin-specific links and their parents
-    const toolsLinks = document.querySelectorAll('a[href="TOOLS"], a[href="ADMINBOARD"]')
-    toolsLinks.forEach(link => {
-      const buttonParent = link.closest('button')
+    const toolsLinks = document.querySelectorAll(
+      'a[href="TOOLS"], a[href="ADMINBOARD"]'
+    )
+    toolsLinks.forEach((link) => {
+      const buttonParent = link.closest("button")
       if (buttonParent) buttonParent.remove()
 
-      const cardParent = link.closest('.item.features-image')
+      const cardParent = link.closest(".item.features-image")
       if (cardParent) cardParent.remove()
 
       link.remove()
     })
 
     // Center the remaining card if it exists
-    const remainingCard = document.querySelector('.features7 .row .item.features-image')
+    const remainingCard = document.querySelector(
+      ".features7 .row .item.features-image"
+    )
     if (remainingCard) {
-      remainingCard.classList.remove('col-lg-6', 'col-md-6')
-      remainingCard.classList.add('col-12', 'text-center')
+      remainingCard.classList.remove("col-lg-6", "col-md-6")
+      remainingCard.classList.add("col-12", "text-center")
     }
   }
 
@@ -205,45 +239,48 @@ async function loadScript(src) {
   })
 }
 
-
 // Main load function to clear existing HTML and load the forum page -----------------------------------------------------
 const loadForumPage = async () => {
-  // remove everything that isn't the menu from the body to use js to generate page content. 
-  const bodyChildren = document.body.children;
-    for (let i = bodyChildren.length - 1; i >= 0; i--) {
-        const child = bodyChildren[i];
-        if (!child.classList.contains('menu')) {
-            child.remove();
-        }
+  // remove everything that isn't the menu from the body to use js to generate page content.
+  const bodyChildren = document.body.children
+  for (let i = bodyChildren.length - 1; i >= 0; i--) {
+    const child = bodyChildren[i]
+    if (!child.classList.contains("menu")) {
+      child.remove()
     }
+  }
 
-    if ((typeof userState.isAdmin === 'undefined') || (!userState.isAdmin)){
-      try {
-        // Fetch and verify the admin status asynchronously
-        userState.isAdmin = await verifyUserIsAdmin()
-      } catch (error) {
-        console.error('Error verifying admin status:', error)
-        userState.isAdmin = false; // Default to non-admin if there's an issue
-      }
+  if (typeof userState.isAdmin === "undefined" || !userState.isAdmin) {
+    try {
+      // Fetch and verify the admin status asynchronously
+      userState.isAdmin = await verifyUserIsAdmin()
+    } catch (error) {
+      console.error("Error verifying admin status:", error)
+      userState.isAdmin = false // Default to non-admin if there's an issue
     }
+  }
 
   const avatarUrl = `/arbitrary/THUMBNAIL/${userState.accountName}/qortal_avatar`
-  const isAdmin = userState.isAdmin;
-  
+  const isAdmin = userState.isAdmin
+
   // Create the forum layout, including a header, sub-menu, and keeping the original background image: style="background-image: url('/assets/images/background.jpg');">
-  const mainContent = document.createElement('div')
+  const mainContent = document.createElement("div")
   mainContent.innerHTML = `
     <div class="forum-main mbr-parallax-background cid-ttRnlSkg2R">
       <div class="forum-header" style="color: lightblue; display: flex; justify-content: center; align-items: center; padding: 10px;">
         <div class="user-info" style="border: 1px solid lightblue; padding: 5px; color: white; display: flex; align-items: center; justify-content: center;">
           <img src="${avatarUrl}" alt="User Avatar" class="user-avatar" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 10px;">
-          <span>${userState.accountName || 'Guest'}</span>
+          <span>${userState.accountName || "Guest"}</span>
         </div>
       </div>
       <div class="forum-submenu">
         <div class="forum-rooms">
           <button class="room-button" id="minters-room">Minters Room</button>
-          ${isAdmin ? '<button class="room-button" id="admins-room">Admins Room</button>' : ''}
+          ${
+            isAdmin
+              ? '<button class="room-button" id="admins-room">Admins Room</button>'
+              : ""
+          }
           <button class="room-button" id="general-room">General Room</button>
         </div>
       </div>
@@ -255,17 +292,17 @@ const loadForumPage = async () => {
 
   // Add event listeners to room buttons
   document.getElementById("minters-room").addEventListener("click", () => {
-    currentPage = 0;
+    currentPage = 0
     loadRoomContent("minters")
   })
   if (userState.isAdmin) {
     document.getElementById("admins-room").addEventListener("click", () => {
-      currentPage = 0;
+      currentPage = 0
       loadRoomContent("admins")
     })
   }
   document.getElementById("general-room").addEventListener("click", () => {
-    currentPage = 0;
+    currentPage = 0
     loadRoomContent("general")
   })
 }
@@ -309,11 +346,11 @@ const renderPaginationControls = (room, totalMessages, limit) => {
   // Add "Next" button
   if (currentPage < totalPages - 1) {
     const nextButton = document.createElement("button")
-    nextButton.innerText = "Next";
+    nextButton.innerText = "Next"
     nextButton.addEventListener("click", () => {
       if (currentPage < totalPages - 1) {
         currentPage++
-        loadMessagesFromQDN(room, currentPage, false);
+        loadMessagesFromQDN(room, currentPage, false)
       }
     })
     paginationContainer.appendChild(nextButton)
@@ -336,7 +373,9 @@ const loadRoomContent = async (room) => {
   // Set initial content
   forumContent.innerHTML = `
     <div class="room-content">
-      <h3 class="room-title" style="color: lightblue;">${room.charAt(0).toUpperCase() + room.slice(1)} Room</h3>
+      <h3 class="room-title" style="color: lightblue;">${
+        room.charAt(0).toUpperCase() + room.slice(1)
+      } Room</h3>
       <div id="messages-container" class="messages-container"></div>
       <div id="pagination-container" class="pagination-container" style="margin-top: 20px; text-align: center;"></div>
       <div class="message-input-section">
@@ -357,7 +396,7 @@ const loadRoomContent = async (room) => {
 
   // Add modal for image preview
   forumContent.insertAdjacentHTML(
-    'beforeend',
+    "beforeend",
     `
     <div id="image-modal" class="image-modal">
         <span id="close-modal" class="close">&times;</span>
@@ -365,7 +404,8 @@ const loadRoomContent = async (room) => {
         <div id="caption" class="caption"></div>
         <button id="download-button" class="download-button">Download</button>
     </div>
-  `)
+  `
+  )
 
   initializeQuillEditor()
   setupModalHandlers()
@@ -374,13 +414,12 @@ const loadRoomContent = async (room) => {
   const latestId = latestMessageIdentifiers[room]?.latestIdentifier
   if (latestId) {
     const page = await findMessagePage(room, latestId, 10)
-    currentPage = page;
+    currentPage = page
     await loadMessagesFromQDN(room, currentPage)
     scrollToMessage(latestId.latestIdentifier)
-  } else{
+  } else {
     await loadMessagesFromQDN(room, currentPage)
   }
-  
 }
 
 // Initialize Quill editor //TODO check the updated editor init code
@@ -403,36 +442,33 @@ const loadRoomContent = async (room) => {
 //   });
 // };
 
-
 const initializeQuillEditor = () => {
-  const editorContainer = document.querySelector('#editor')
-  
+  const editorContainer = document.querySelector("#editor")
+
   if (!editorContainer) {
     console.error("Editor container not found!")
     return
   }
 
-new Quill('#editor', {
-    theme: 'snow',
+  new Quill("#editor", {
+    theme: "snow",
     modules: {
       toolbar: [
-        [{ 'font': [] }],
-        [{ indent: '-1' }, { indent: '+1' }], 
-        [{ 'header': [1, 2, 3, 5, false] }],
-        ['bold', 'italic', 'underline', 'strike'], 
-        ['blockquote', 'code-block'], 
-        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-        ['link', 'blockquote', 'code-block'],
-        [{ 'color': [] }, { 'background': [] }],
+        [{ font: [] }],
+        [{ indent: "-1" }, { indent: "+1" }],
+        [{ header: [1, 2, 3, 5, false] }],
+        ["bold", "italic", "underline", "strike"],
+        ["blockquote", "code-block"],
+        [{ list: "ordered" }, { list: "bullet" }],
+        ["link", "blockquote", "code-block"],
+        [{ color: [] }, { background: [] }],
         // ['link', 'image', 'video'], //todo attempt to add fancy base64 embed function for images, gif, and maybe small videos.
-        [{ 'align': [] }],
-        ['clean']
-      ]
-    }
+        [{ align: [] }],
+        ["clean"],
+      ],
+    },
   })
 }
-
-
 
 // Set up modal behavior
 const setupModalHandlers = () => {
@@ -467,16 +503,18 @@ let attachmentIdentifiers = []
 
 // Set up file input handling
 const setupFileInputs = (room) => {
-  const imageFileInput = document.getElementById('image-input')
-  const previewContainer = document.getElementById('preview-container')
-  const addToPublishButton = document.getElementById('add-images-to-publish-button')
-  const fileInput = document.getElementById('file-input')
-  const sendButton = document.getElementById('send-button')
+  const imageFileInput = document.getElementById("image-input")
+  const previewContainer = document.getElementById("preview-container")
+  const addToPublishButton = document.getElementById(
+    "add-images-to-publish-button"
+  )
+  const fileInput = document.getElementById("file-input")
+  const sendButton = document.getElementById("send-button")
 
   const attachmentID = generateAttachmentID(room)
 
-  imageFileInput.addEventListener('change', (event) => {
-    previewContainer.innerHTML = ''
+  imageFileInput.addEventListener("change", (event) => {
+    previewContainer.innerHTML = ""
     selectedImages = [...event.target.files]
 
     addToPublishButton.disabled = selectedImages.length === 0
@@ -484,14 +522,15 @@ const setupFileInputs = (room) => {
     selectedImages.forEach((file, index) => {
       const reader = new FileReader()
       reader.onload = () => {
-        const img = document.createElement('img')
+        const img = document.createElement("img")
         img.src = reader.result
         img.alt = file.name
-        img.style = "width: 100px; height: 100px; object-fit: cover; border: 1px solid #ccc; border-radius: 5px;"
+        img.style =
+          "width: 100px; height: 100px; object-fit: cover; border: 1px solid #ccc; border-radius: 5px;"
 
-        const removeButton = document.createElement('button')
-        removeButton.innerText = 'Remove'
-        removeButton.classList.add('remove-image-button')
+        const removeButton = document.createElement("button")
+        removeButton.innerText = "Remove"
+        removeButton.classList.add("remove-image-button")
         removeButton.onclick = () => {
           selectedImages.splice(index, 1)
           img.remove()
@@ -499,8 +538,9 @@ const setupFileInputs = (room) => {
           addToPublishButton.disabled = selectedImages.length === 0
         }
 
-        const container = document.createElement('div')
-        container.style = "display: flex; flex-direction: column; align-items: center; margin: 5px;"
+        const container = document.createElement("div")
+        container.style =
+          "display: flex; flex-direction: column; align-items: center; margin: 5px;"
         container.append(img, removeButton)
         previewContainer.append(container)
       }
@@ -508,40 +548,48 @@ const setupFileInputs = (room) => {
     })
   })
 
-  addToPublishButton.addEventListener('click', () => {
+  addToPublishButton.addEventListener("click", () => {
     processSelectedImages(selectedImages, multiResource, room)
     selectedImages = []
     imageFileInput.value = ""
     addToPublishButton.disabled = true
   })
 
-  fileInput.addEventListener('change', (event) => {
+  fileInput.addEventListener("change", (event) => {
     selectedFiles = [...event.target.files]
   })
 
-  sendButton.addEventListener('click', async () => {
-    const quill = new Quill('#editor')  //TODO figure out what is going on with the quill initialization and so forth.
+  sendButton.addEventListener("click", async () => {
+    const quill = new Quill("#editor") //TODO figure out what is going on with the quill initialization and so forth.
     const messageHtml = quill.root.innerHTML.trim()
 
     if (messageHtml || selectedFiles.length > 0 || selectedImages.length > 0) {
-      await handleSendMessage(room, messageHtml, selectedFiles, selectedImages, multiResource)
+      await handleSendMessage(
+        room,
+        messageHtml,
+        selectedFiles,
+        selectedImages,
+        multiResource
+      )
     }
   })
 }
 
 // Process selected images
 const processSelectedImages = async (selectedImages, multiResource, room) => {
-  
   for (const file of selectedImages) {
-    const attachmentID = generateAttachmentID(room, selectedImages.indexOf(file))
-  
+    const attachmentID = generateAttachmentID(
+      room,
+      selectedImages.indexOf(file)
+    )
+
     multiResource.push({
       name: userState.accountName,
       service: room === "admins" ? "FILE_PRIVATE" : "FILE",
       identifier: attachmentID,
       file: file, // Use encrypted file for admins
     })
-  
+
     attachmentIdentifiers.push({
       name: userState.accountName,
       service: room === "admins" ? "FILE_PRIVATE" : "FILE",
@@ -553,10 +601,17 @@ const processSelectedImages = async (selectedImages, multiResource, room) => {
 }
 
 // Handle send message
-const handleSendMessage = async (room, messageHtml, selectedFiles, selectedImages, multiResource) => {
-  const messageIdentifier = room === "admins"
-    ? `${messageIdentifierPrefix}-${room}-e-${randomID()}`
-    : `${messageIdentifierPrefix}-${room}-${randomID()}`
+const handleSendMessage = async (
+  room,
+  messageHtml,
+  selectedFiles,
+  selectedImages,
+  multiResource
+) => {
+  const messageIdentifier =
+    room === "admins"
+      ? `${messageIdentifierPrefix}-${room}-e-${randomID()}`
+      : `${messageIdentifierPrefix}-${room}-${randomID()}`
 
   try {
     // Process selected images
@@ -567,7 +622,10 @@ const handleSendMessage = async (room, messageHtml, selectedFiles, selectedImage
     // Process selected files
     if (selectedFiles && selectedFiles.length > 0) {
       for (const file of selectedFiles) {
-        const attachmentID = generateAttachmentID(room, selectedFiles.indexOf(file))
+        const attachmentID = generateAttachmentID(
+          room,
+          selectedFiles.indexOf(file)
+        )
 
         multiResource.push({
           name: userState.accountName,
@@ -602,7 +660,7 @@ const handleSendMessage = async (room, messageHtml, selectedFiles, selectedImage
 
     if (room === "admins" && userState.isAdmin) {
       console.log("Encrypting message for admins...")
-      
+
       multiResource.push({
         name: userState.accountName,
         service: "MAIL_PRIVATE",
@@ -621,7 +679,9 @@ const handleSendMessage = async (room, messageHtml, selectedFiles, selectedImage
     // Publish resources
     if (room === "admins") {
       if (!userState.isAdmin) {
-        console.error("User is not an admin or no admin public keys found. Aborting publish.")
+        console.error(
+          "User is not an admin or no admin public keys found. Aborting publish."
+        )
         window.alert("You are not authorized to post in the Admin room.")
         return
       }
@@ -640,17 +700,16 @@ const handleSendMessage = async (room, messageHtml, selectedFiles, selectedImage
   }
 }
 
-
 function clearInputs() {
   // Clear the file input elements and preview container
-  document.getElementById('file-input').value = ''
-  document.getElementById('image-input').value = ''
-  document.getElementById('preview-container').innerHTML = ''
+  document.getElementById("file-input").value = ""
+  document.getElementById("image-input").value = ""
+  document.getElementById("preview-container").innerHTML = ""
 
   // Reset the Quill editor
-  const quill = new Quill('#editor')
-    quill.setContents([]) 
-    quill.setSelection(0) 
+  const quill = new Quill("#editor")
+  quill.setContents([])
+  quill.setSelection(0)
 
   // Reset other state variables
   replyToMessageIdentifier = null
@@ -660,20 +719,20 @@ function clearInputs() {
   selectedFiles = []
 
   // Remove the reply container
-  const replyContainer = document.querySelector('.reply-container')
+  const replyContainer = document.querySelector(".reply-container")
   if (replyContainer) {
     replyContainer.remove()
   }
 }
 
-
 // Show success notification
 const showSuccessNotification = () => {
-  const notification = document.createElement('div')
-  notification.innerText = "Successfully Published! Please note that messages will not display until after they are CONFIRMED, be patient!"
+  const notification = document.createElement("div")
+  notification.innerText =
+    "Successfully Published! Please note that messages will not display until after they are CONFIRMED, be patient!"
   notification.style.color = "green"
   notification.style.marginTop = "1em"
-  document.querySelector(".message-input-section").appendChild(notification);
+  document.querySelector(".message-input-section").appendChild(notification)
   // alert(`Successfully Published! Please note that messages will not display until after they are CONFIRMED, be patient!`)
 
   setTimeout(() => {
@@ -683,7 +742,10 @@ const showSuccessNotification = () => {
 
 // Generate unique attachment ID
 const generateAttachmentID = (room, fileIndex = null) => {
-  const baseID = room === "admins" ? `${messageAttachmentIdentifierPrefix}-${room}-e-${randomID()}` : `${messageAttachmentIdentifierPrefix}-${room}-${randomID()}`
+  const baseID =
+    room === "admins"
+      ? `${messageAttachmentIdentifierPrefix}-${room}-e-${randomID()}`
+      : `${messageAttachmentIdentifierPrefix}-${room}-${randomID()}`
   return fileIndex !== null ? `${baseID}-${fileIndex}` : baseID
 }
 
@@ -691,24 +753,33 @@ const generateAttachmentID = (room, fileIndex = null) => {
 
 const findMessagePage = async (room, identifier, limit) => {
   const { service, query } = getServiceAndQuery(room)
- //TODO check that searchSimple change worked.
-  const allMessages = await searchSimple(service, query, '', 0, 0, room, 'false')
+  //TODO check that searchSimple change worked.
+  const allMessages = await searchSimple(
+    service,
+    query,
+    "",
+    0,
+    0,
+    room,
+    "false"
+  )
 
-  const idx = allMessages.findIndex(msg => msg.identifier === identifier)
+  const idx = allMessages.findIndex((msg) => msg.identifier === identifier)
   if (idx === -1) {
     // Not found, default to last page or page=0
     return 0
   }
 
   return Math.floor(idx / limit)
-
 }
 
 const loadMessagesFromQDN = async (room, page, isPolling = false) => {
   try {
     const limit = 10
     const offset = page * limit
-    console.log(`Loading messages from QDN: room=${room}, page=${page}, offset=${offset}, limit=${limit}`)
+    console.log(
+      `Loading messages from QDN: room=${room}, page=${page}, offset=${offset}, limit=${limit}`
+    )
 
     const messagesContainer = document.querySelector("#messages-container")
     if (!messagesContainer) return
@@ -716,18 +787,27 @@ const loadMessagesFromQDN = async (room, page, isPolling = false) => {
     prepareMessageContainer(messagesContainer, isPolling)
 
     const { service, query } = getServiceAndQuery(room)
-    const response = await fetchResourceList(service, query, limit, offset, room)
+    const response = await fetchResourceList(
+      service,
+      query,
+      limit,
+      offset,
+      room
+    )
 
     console.log(`Fetched ${response.length} message(s) for page ${page}.`)
 
-    if (handleNoMessagesScenario(isPolling, page, response, messagesContainer)) {
+    if (
+      handleNoMessagesScenario(isPolling, page, response, messagesContainer)
+    ) {
       return
     }
 
     // Re-establish existing identifiers after preparing container
     existingIdentifiers = new Set(
-      Array.from(messagesContainer.querySelectorAll('.message-item'))
-        .map(item => item.dataset.identifier)
+      Array.from(messagesContainer.querySelectorAll(".message-item")).map(
+        (item) => item.dataset.identifier
+      )
     )
 
     let mostRecentMessage = getCurrentMostRecentMessage(room)
@@ -739,13 +819,14 @@ const loadMessagesFromQDN = async (room, page, isPolling = false) => {
       storeMessageInMap(msg)
     }
 
-    const { firstNewMessageIdentifier, updatedMostRecentMessage } = await renderNewMessages(
-      fetchMessages,
-      existingIdentifiers,
-      messagesContainer,
-      room,
-      mostRecentMessage
-    )
+    const { firstNewMessageIdentifier, updatedMostRecentMessage } =
+      await renderNewMessages(
+        fetchMessages,
+        existingIdentifiers,
+        messagesContainer,
+        room,
+        mostRecentMessage
+      )
 
     if (firstNewMessageIdentifier && !isPolling) {
       scrollToNewMessages(firstNewMessageIdentifier)
@@ -759,14 +840,16 @@ const loadMessagesFromQDN = async (room, page, isPolling = false) => {
 
     await updatePaginationControls(room, limit)
   } catch (error) {
-    console.error('Error loading messages from QDN:', error)
+    console.error("Error loading messages from QDN:", error)
   }
 }
 
 function scrollToMessage(identifier) {
-  const targetElement = document.querySelector(`.message-item[data-identifier="${identifier}"]`)
+  const targetElement = document.querySelector(
+    `.message-item[data-identifier="${identifier}"]`
+  )
   if (targetElement) {
-    targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    targetElement.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 }
 
@@ -780,19 +863,25 @@ const prepareMessageContainer = (messagesContainer, isPolling) => {
 }
 
 const getServiceAndQuery = (room) => {
-  const service = (room === "admins") ? "MAIL_PRIVATE" : "BLOG_POST"
-  const query = (room === "admins") 
-    ? `${messageIdentifierPrefix}-${room}-e` 
-    : `${messageIdentifierPrefix}-${room}`
+  const service = room === "admins" ? "MAIL_PRIVATE" : "BLOG_POST"
+  const query =
+    room === "admins"
+      ? `${messageIdentifierPrefix}-${room}-e`
+      : `${messageIdentifierPrefix}-${room}`
   return { service, query }
 }
 
 const fetchResourceList = async (service, query, limit, offset, room) => {
   //TODO check
-  return await searchSimple(service, query, '', limit, offset, room, 'false')
+  return await searchSimple(service, query, "", limit, offset, room, "false")
 }
 
-const handleNoMessagesScenario = (isPolling, page, response, messagesContainer) => {
+const handleNoMessagesScenario = (
+  isPolling,
+  page,
+  response,
+  messagesContainer
+) => {
   if (response.length === 0) {
     if (page === 0 && !isPolling) {
       messagesContainer.innerHTML = `<p>No messages found. Be the first to post!</p>`
@@ -803,7 +892,9 @@ const handleNoMessagesScenario = (isPolling, page, response, messagesContainer) 
 }
 
 const getCurrentMostRecentMessage = (room) => {
-  return latestMessageIdentifiers[room]?.latestTimestamp ? latestMessageIdentifiers[room] : null
+  return latestMessageIdentifiers[room]?.latestTimestamp
+    ? latestMessageIdentifiers[room]
+    : null
 }
 
 // 1) Convert fetchAllMessages to fully async
@@ -814,9 +905,12 @@ const fetchAllMessages = async (response, service, room) => {
     response.map(async (resource) => {
       try {
         const msg = await fetchFullMessage(resource, service, room)
-        return msg; // This might be null if you do that check in fetchFullMessage
+        return msg // This might be null if you do that check in fetchFullMessage
       } catch (err) {
-        console.error(`Skipping resource ${resource.identifier} due to error:`, err)
+        console.error(
+          `Skipping resource ${resource.identifier} due to error:`,
+          err
+        )
         // Return null so it doesn't break everything
         return null
       }
@@ -826,7 +920,6 @@ const fetchAllMessages = async (response, service, room) => {
   // Filter out any that are null/undefined (missing or errored)
   return messages.filter(Boolean)
 }
-
 
 // 2) fetchFullMessage is already async. We keep it async/await-based
 const fetchFullMessage = async (resource, service, room) => {
@@ -871,7 +964,9 @@ const fetchFullMessage = async (resource, service, room) => {
 
     return builtMsg
   } catch (error) {
-    console.error(`Failed to fetch message ${resource.identifier}: ${error.message}`)
+    console.error(
+      `Failed to fetch message ${resource.identifier}: ${error.message}`
+    )
     return {
       name: resource.name,
       content: "<em>Error loading message</em>",
@@ -884,9 +979,14 @@ const fetchFullMessage = async (resource, service, room) => {
   }
 }
 
-const fetchReplyData = async (service, name, identifier, room, replyTimestamp) => {
+const fetchReplyData = async (
+  service,
+  name,
+  identifier,
+  room,
+  replyTimestamp
+) => {
   try {
-
     console.log(`Fetching message with identifier: ${identifier}`)
     const messageResponse = await qortalRequest({
       action: "FETCH_QDN_RESOURCE",
@@ -895,11 +995,13 @@ const fetchReplyData = async (service, name, identifier, room, replyTimestamp) =
       identifier,
       ...(room === "admins" ? { encoding: "base64" } : {}),
     })
-    console.log('reply response',messageResponse)
-    
+    console.log("reply response", messageResponse)
+
     const messageObject = await processMessageObject(messageResponse, room)
-    console.log('reply message object',messageObject)
-    const formattedTimestamp = await timestampToHumanReadableDate(replyTimestamp)
+    console.log("reply message object", messageObject)
+    const formattedTimestamp = await timestampToHumanReadableDate(
+      replyTimestamp
+    )
 
     return {
       name,
@@ -924,22 +1026,27 @@ const fetchReplyData = async (service, name, identifier, room, replyTimestamp) =
   }
 }
 
-
 const processMessageObject = async (messageResponse, room) => {
   if (room !== "admins") {
-    return messageResponse;
+    return messageResponse
   }
 
   try {
-    const decryptedData = await decryptAndParseObject(messageResponse);
+    const decryptedData = await decryptAndParseObject(messageResponse)
     return decryptedData
   } catch (error) {
-    console.error(`Failed to decrypt admin message: ${error.message}`);
-    return null;
+    console.error(`Failed to decrypt admin message: ${error.message}`)
+    return null
   }
-};
+}
 
-const renderNewMessages = async (fetchMessages, existingIdentifiers, messagesContainer, room, mostRecentMessage) => {
+const renderNewMessages = async (
+  fetchMessages,
+  existingIdentifiers,
+  messagesContainer,
+  room,
+  mostRecentMessage
+) => {
   let firstNewMessageIdentifier = null
   let updatedMostRecentMessage = mostRecentMessage
 
@@ -950,10 +1057,19 @@ const renderNewMessages = async (fetchMessages, existingIdentifiers, messagesCon
         firstNewMessageIdentifier = message.identifier
       }
 
-      const messageHTML = await buildMessageHTML(message, fetchMessages, room, isNewMessage)
-      messagesContainer.insertAdjacentHTML('beforeend', messageHTML)
+      const messageHTML = await buildMessageHTML(
+        message,
+        fetchMessages,
+        room,
+        isNewMessage
+      )
+      messagesContainer.insertAdjacentHTML("beforeend", messageHTML)
 
-      if (!updatedMostRecentMessage || new Date(message.timestamp) > new Date(updatedMostRecentMessage?.latestTimestamp || 0)) {
+      if (
+        !updatedMostRecentMessage ||
+        new Date(message.timestamp) >
+          new Date(updatedMostRecentMessage?.latestTimestamp || 0)
+      ) {
         updatedMostRecentMessage = {
           latestIdentifier: message.identifier,
           latestTimestamp: message.timestamp,
@@ -968,13 +1084,18 @@ const renderNewMessages = async (fetchMessages, existingIdentifiers, messagesCon
 }
 
 const isMessageNew = (message, mostRecentMessage) => {
-  return !mostRecentMessage || new Date(message.timestamp) > new Date(mostRecentMessage?.latestTimestamp)
+  return (
+    !mostRecentMessage ||
+    new Date(message.timestamp) > new Date(mostRecentMessage?.latestTimestamp)
+  )
 }
 
 const buildMessageHTML = async (message, fetchMessages, room, isNewMessage) => {
   const replyHtml = await buildReplyHtml(message, room)
   const attachmentHtml = await buildAttachmentHtml(message, room)
-  const avatarUrl = `/arbitrary/THUMBNAIL/${encodeURIComponent(message.name)}/qortal_avatar`
+  const avatarUrl = `/arbitrary/THUMBNAIL/${encodeURIComponent(
+    message.name
+  )}/qortal_avatar`
   const safeName = qEscapeHtml(message.name)
   const safeDate = qEscapeHtml(message.date)
   // Kakashi Note: Forum messages are sanitized before render so rich text remains readable without allowing injected scripts.
@@ -986,7 +1107,11 @@ const buildMessageHTML = async (message, fetchMessages, room, isNewMessage) => {
         <div style="display: flex; align-items: center;">
           <img src="${avatarUrl}" alt="Avatar" class="user-avatar" style="width: 30px; height: 30px; border-radius: 50%; margin-right: 10px;">
           <span class="username">${safeName}</span>
-          ${isNewMessage ? `<span class="new-indicator" style="margin-left: 10px; color: red; font-weight: bold;">NEW</span>` : ''}
+          ${
+            isNewMessage
+              ? `<span class="new-indicator" style="margin-left: 10px; color: red; font-weight: bold;">NEW</span>`
+              : ""
+          }
         </div>
         <span class="timestamp">${safeDate}</span>
       </div>
@@ -995,7 +1120,9 @@ const buildMessageHTML = async (message, fetchMessages, room, isNewMessage) => {
       <div class="attachments-gallery">
         ${attachmentHtml}
       </div>
-      <button class="reply-button" data-message-identifier="${message.identifier}">Reply</button>
+      <button class="reply-button" data-message-identifier="${
+        message.identifier
+      }">Reply</button>
     </div>
   `
 }
@@ -1005,7 +1132,7 @@ const buildReplyHtml = async (message, room) => {
   if (!message.replyTo) return ""
 
   // 2) Decide which QDN service for this room
-  const replyService = (room === "admins") ? "MAIL_PRIVATE" : "BLOG_POST"
+  const replyService = room === "admins" ? "MAIL_PRIVATE" : "BLOG_POST"
   const replyIdentifier = message.replyTo
 
   // 3) Check if we already have a *saved* message
@@ -1030,8 +1157,10 @@ const buildReplyHtml = async (message, room) => {
         </div>
       `
     } else {
-      // The cached message is invalid 
-      console.log("Saved message found but processMessageObject returned null. Falling back...")
+      // The cached message is invalid
+      console.log(
+        "Saved message found but processMessageObject returned null. Falling back..."
+      )
     }
   }
 
@@ -1046,10 +1175,19 @@ const buildReplyHtml = async (message, room) => {
     // We'll use replyData to fetch the actual message from QDN
     const replyName = replyData.name
     const replyTimestamp = replyData.updated || replyData.created
-    console.log("message not found in workable form, using searchSimple result =>", replyData)
+    console.log(
+      "message not found in workable form, using searchSimple result =>",
+      replyData
+    )
 
     // This fetches and decrypts the actual message
-    const repliedMessage = await fetchReplyData(replyService, replyName, replyIdentifier, room, replyTimestamp)
+    const repliedMessage = await fetchReplyData(
+      replyService,
+      replyName,
+      replyIdentifier,
+      room,
+      replyTimestamp
+    )
     if (!repliedMessage) return ""
 
     // Now store the final message in the map for next time
@@ -1078,7 +1216,7 @@ const buildAttachmentHtml = async (message, room) => {
   }
 
   // Map over attachments -> array of Promises
-  const attachmentsHtmlPromises = message.attachments.map(attachment =>
+  const attachmentsHtmlPromises = message.attachments.map((attachment) =>
     buildSingleAttachmentHtml(attachment, room)
   )
 
@@ -1098,8 +1236,16 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
   const safeFilenameText = qEscapeHtml(attachment.filename)
   const safeMimeType = qEscapeAttr(attachment.mimeType)
 
-  if (room !== "admins" && attachment.mimeType && attachment.mimeType.startsWith('image/')) {
-    const imageUrl = `/arbitrary/${encodeURIComponent(attachment.service)}/${encodeURIComponent(attachment.name)}/${encodeURIComponent(attachment.identifier)}`
+  if (
+    room !== "admins" &&
+    attachment.mimeType &&
+    attachment.mimeType.startsWith("image/")
+  ) {
+    const imageUrl = `/arbitrary/${encodeURIComponent(
+      attachment.service
+    )}/${encodeURIComponent(attachment.name)}/${encodeURIComponent(
+      attachment.identifier
+    )}`
     return `
       <div class="attachment">
         <img src="${imageUrl}" alt="${safeFilenameAttr}" class="inline-image"/>
@@ -1113,14 +1259,24 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
         </button>
       </div>
     `
-  } else if 
-    (room === "admins" && attachment.mimeType && attachment.mimeType.startsWith('image/')) {
+  } else if (
+    room === "admins" &&
+    attachment.mimeType &&
+    attachment.mimeType.startsWith("image/")
+  ) {
     // const imageUrl = `/arbitrary/${attachment.service}/${attachment.name}/${attachment.identifier}`;
     // const decryptedBase64 = await fetchEncryptedImageBase64(attachment.service, attachment.name, attachment.identifier, attachment.mimeType)
     // const dataUrl = `data:image/${attachment.mimeType};base64,${decryptedBase64}`
-      //<img src="${dataUrl}" alt="${attachment.filename}" class="inline-image"/>
-      // above copied from removed html that is now created with fetchImageUrl TODO test this to ensure it works as expected.
-    const imageHtml = await loadInLineImageHtml(attachment.service, attachment.name, attachment.identifier, attachment.filename, attachment.mimeType, 'admins')
+    //<img src="${dataUrl}" alt="${attachment.filename}" class="inline-image"/>
+    // above copied from removed html that is now created with fetchImageUrl TODO test this to ensure it works as expected.
+    const imageHtml = await loadInLineImageHtml(
+      attachment.service,
+      attachment.name,
+      attachment.identifier,
+      attachment.filename,
+      attachment.mimeType,
+      "admins"
+    )
     return `
       <div class="attachment">
         ${imageHtml}
@@ -1134,7 +1290,6 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
         </button>
       </div>
     `
-
   } else {
     return `
       <div class="attachment">
@@ -1153,32 +1308,39 @@ const buildSingleAttachmentHtml = async (attachment, room) => {
 
 const fetchAndSaveAttachmentFromButton = (buttonEl) => {
   if (!buttonEl) return
-  const service = buttonEl.dataset?.service || ''
-  const name = buttonEl.dataset?.name || ''
-  const identifier = buttonEl.dataset?.identifier || ''
-  const filename = buttonEl.dataset?.filename || ''
-  const mimeType = buttonEl.dataset?.mimetype || ''
+  const service = buttonEl.dataset?.service || ""
+  const name = buttonEl.dataset?.name || ""
+  const identifier = buttonEl.dataset?.identifier || ""
+  const filename = buttonEl.dataset?.filename || ""
+  const mimeType = buttonEl.dataset?.mimetype || ""
   fetchAndSaveAttachment(service, name, identifier, filename, mimeType)
 }
 
 const scrollToNewMessages = (firstNewMessageIdentifier) => {
-  const newMessageElement = document.querySelector(`.message-item[data-identifier="${firstNewMessageIdentifier}"]`)
+  const newMessageElement = document.querySelector(
+    `.message-item[data-identifier="${firstNewMessageIdentifier}"]`
+  )
   if (newMessageElement) {
-    newMessageElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    newMessageElement.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 }
 
 const updateLatestMessageIdentifiers = (room, mostRecentMessage) => {
   latestMessageIdentifiers[room] = mostRecentMessage
-  localStorage.setItem("latestMessageIdentifiers", JSON.stringify(latestMessageIdentifiers))
+  localStorage.setItem(
+    "latestMessageIdentifiers",
+    JSON.stringify(latestMessageIdentifiers)
+  )
 }
 
 const handleReplyLogic = (fetchMessages) => {
   const replyButtons = document.querySelectorAll(".reply-button")
-  replyButtons.forEach(button => {
+  replyButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const replyToMessageIdentifier = button.dataset.messageIdentifier
-      const repliedMessage = fetchMessages.find(m => m && m.identifier === replyToMessageIdentifier)
+      const repliedMessage = fetchMessages.find(
+        (m) => m && m.identifier === replyToMessageIdentifier
+      )
       if (repliedMessage) {
         showReplyPreview(repliedMessage)
       }
@@ -1202,7 +1364,10 @@ const showReplyPreview = (repliedMessage) => {
   if (!document.querySelector(".reply-container")) {
     const messageInputSection = document.querySelector(".message-input-section")
     if (messageInputSection) {
-      messageInputSection.insertBefore(replyContainer, messageInputSection.firstChild)
+      messageInputSection.insertBefore(
+        replyContainer,
+        messageInputSection.firstChild
+      )
       document.getElementById("cancel-reply").addEventListener("click", () => {
         replyToMessageIdentifier = null
         replyContainer.remove()
@@ -1214,7 +1379,7 @@ const showReplyPreview = (repliedMessage) => {
   const editor = document.querySelector(".ql-editor")
 
   if (messageInputSection) {
-    messageInputSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    messageInputSection.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 
   if (editor) {
@@ -1223,44 +1388,47 @@ const showReplyPreview = (repliedMessage) => {
 }
 
 const updatePaginationControls = async (room, limit) => {
-  const totalMessages = room === "admins" ? await searchAllCountOnly(`${messageIdentifierPrefix}-${room}-e`, room) : await searchAllCountOnly(`${messageIdentifierPrefix}-${room}`, room)
+  const totalMessages =
+    room === "admins"
+      ? await searchAllCountOnly(`${messageIdentifierPrefix}-${room}-e`, room)
+      : await searchAllCountOnly(`${messageIdentifierPrefix}-${room}`, room)
   renderPaginationControls(room, totalMessages, limit)
 }
 
 const createScrollToTopButton = () => {
-  if (document.getElementById('scrollToTopButton')) return
+  if (document.getElementById("scrollToTopButton")) return
 
-  const button = document.createElement('button')
-  button.id = 'scrollToTopButton'
+  const button = document.createElement("button")
+  button.id = "scrollToTopButton"
 
-  button.innerHTML = '↑'
+  button.innerHTML = "↑"
 
   // Initial “not visible” state
-  button.style.display = 'none'
+  button.style.display = "none"
 
-  button.style.position = 'fixed'
-  button.style.bottom = '3vh'
-  button.style.right = '3vw'
-  button.style.width = '9vw'
-  button.style.height = '9vw'
-  button.style.minWidth = '45px'
-  button.style.minHeight = '45px'
-  button.style.maxWidth = '60px'
-  button.style.maxHeight = '60px'
-  button.style.borderRadius = '50%'
-  button.style.backgroundColor = 'black'
-  button.style.color = 'white'
-  button.style.border = '2px solid white'
-  button.style.boxShadow = '0 0 15px rgba(0,0,0,0.5)'
-  button.style.cursor = 'pointer'
-  button.style.zIndex = '1000'
-  button.style.transition = 'opacity 0.3s ease, transform 0.3s ease'
-  button.style.fontSize = '5vw'
-  button.style.minFontSize = '18px'
-  button.style.maxFontSize = '30px'
+  button.style.position = "fixed"
+  button.style.bottom = "3vh"
+  button.style.right = "3vw"
+  button.style.width = "9vw"
+  button.style.height = "9vw"
+  button.style.minWidth = "45px"
+  button.style.minHeight = "45px"
+  button.style.maxWidth = "60px"
+  button.style.maxHeight = "60px"
+  button.style.borderRadius = "50%"
+  button.style.backgroundColor = "black"
+  button.style.color = "white"
+  button.style.border = "2px solid white"
+  button.style.boxShadow = "0 0 15px rgba(0,0,0,0.5)"
+  button.style.cursor = "pointer"
+  button.style.zIndex = "1000"
+  button.style.transition = "opacity 0.3s ease, transform 0.3s ease"
+  button.style.fontSize = "5vw"
+  button.style.minFontSize = "18px"
+  button.style.maxFontSize = "30px"
 
   button.onclick = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   document.body.appendChild(button)
@@ -1270,26 +1438,28 @@ const createScrollToTopButton = () => {
     let sizePx = parseFloat(computedStyle.fontSize)
     if (sizePx < 18) sizePx = 18
     if (sizePx > 30) sizePx = 30
-    button.style.fontSize = sizePx + 'px'
+    button.style.fontSize = sizePx + "px"
   }
   adjustFontSize()
 
-  window.addEventListener('resize', adjustFontSize)
+  window.addEventListener("resize", adjustFontSize)
 
-  window.addEventListener('scroll', () => {
+  window.addEventListener("scroll", () => {
     if (window.scrollY > 200) {
-      button.style.display = 'block'
+      button.style.display = "block"
     } else {
-      button.style.display = 'none'
+      button.style.display = "none"
     }
   })
 }
 
-
 // Polling function to check for new messages without clearing existing ones
 function startPollingForNewMessages() {
   setInterval(async () => {
-    const activeRoom = document.querySelector('.room-title')?.innerText.toLowerCase().split(" ")[0]
+    const activeRoom = document
+      .querySelector(".room-title")
+      ?.innerText.toLowerCase()
+      .split(" ")[0]
     if (activeRoom) {
       await loadMessagesFromQDN(activeRoom, currentPage, true)
     }

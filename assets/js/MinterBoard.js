@@ -4,13 +4,13 @@ const minterCardIdentifierPrefix = "Minter-board-card"
 let isExistingCard = false
 let existingCardData = {}
 let existingCardIdentifier = ""
-const MIN_ADMIN_YES_VOTES = 9;
+const MIN_ADMIN_YES_VOTES = 9
 const GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT = 2012800 //TODO update this to correct featureTrigger height when known, either that, or pull from core.
 let featureTriggerPassed = false
 let isApproved = false
 
-let cachedMinterAdmins 
-let cachedMinterGroup 
+let cachedMinterAdmins
+let cachedMinterGroup
 // Kakashi Note: Batch size tuned for progressive rendering so cards appear quickly without overloading QDN requests.
 const MINTER_SCROLL_BATCH_SIZE = 12
 const minterBoardInfiniteState = {
@@ -28,10 +28,12 @@ const minterBoardInfiniteState = {
   counterSpan: null,
   container: null,
   scrollHandler: null,
-  backgroundRunnerToken: 0
+  backgroundRunnerToken: 0,
 }
 const minterBoardSearchCacheByPrefix = new Map()
 const minterBoardCardDataCache = new Map()
+const optimisticMinterBoardCardCache = new Map()
+const optimisticMinterBoardCommentCache = new Map()
 
 const loadMinterBoardPage = async () => {
   // Kakashi Note: Remove existing board scroll listeners before loading this page to prevent duplicate lazy-load triggers.
@@ -45,7 +47,7 @@ const loadMinterBoardPage = async () => {
   // Clear existing content on the page
   const bodyChildren = document.body.children
   for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i];
+    const child = bodyChildren[i]
     if (!child.classList.contains("menu")) {
       child.remove()
     }
@@ -53,8 +55,8 @@ const loadMinterBoardPage = async () => {
 
   // Add the "Minter Board" content
   const mainContent = document.createElement("div")
-  const publishButtonColor = '#527c9d'
-  const minterBoardNameColor = '#527c9d'
+  const publishButtonColor = "#527c9d"
+  const minterBoardNameColor = "#527c9d"
   // Kakashi Note: Nomination flow captures nominee identity separately from the publishing minter.
   mainContent.innerHTML = `
     <div class="minter-board-main" style="padding: 0.5vh; text-align: center;">
@@ -71,6 +73,27 @@ const loadMinterBoardPage = async () => {
         After your card has received the necessary invite, return to the card and click the Join Group button to join the MINTER group.
         (A Detailed how-to guide will be coming soon.) 
       </p>
+
+      <div class="minter-steps">
+        <article class="minter-step-card">
+          <span class="minter-step-card-index">1</span>
+          <div class="minter-step-card-copy">
+            <h4>Your Nominee Creates a Minter Card for You</h4>
+          </div>
+        </article>
+        <article class="minter-step-card">
+          <span class="minter-step-card-index">2</span>
+          <div class="minter-step-card-copy">
+            <h4>The Community + Minter Admins Comment + Vote</h4>
+          </div>
+        </article>
+        <article class="minter-step-card">
+          <span class="minter-step-card-index">3</span>
+          <div class="minter-step-card-copy">
+            <h4>Once Voted, a GROUP_APPROVAL-based Invite is Sent if Successful</h4>
+          </div>
+        </article>
+      </div>
 
       <div class="card-display-options">
         <!-- Centered heading -->
@@ -134,14 +157,14 @@ const loadMinterBoardPage = async () => {
         <!-- Hidden Publish Card Form -->
         <div id="publish-card-view" class="publish-card-view" style="display: none; text-align: left; padding: 2vh;">
           <form id="publish-card-form" class="publish-card-form">
-            <h3>Create or Update A Nomination Card</h3>
+            <h3>Create or Update a Nomination Card</h3>
             <label for="nominee-name-input">Nominee Name or Address:</label>
             <input type="text" id="nominee-name-input" maxlength="100" placeholder="Enter nominee name or address" required>
-            <label for="card-header">Header:</label>
-            <input type="text" id="card-header" maxlength="100" placeholder="Enter card header" required>
+            <label for="card-header">Nomination Summary:</label>
+            <input type="text" id="card-header" maxlength="100" placeholder="Summarize why you are nominating this person" required>
 
-            <label for="card-content">Content:</label>
-            <textarea id="card-content" placeholder="Enter detailed information about why you would like to be a minter... the more the better..." required>
+            <label for="card-content">Nomination Statement:</label>
+            <textarea id="card-content" placeholder="Share why this nominee should be considered for minting rights. Include relevant context, contributions, and anything voters should review." required>
             </textarea>
 
             <label for="card-links">Links (qortal://...):</label>
@@ -158,73 +181,87 @@ const loadMinterBoardPage = async () => {
   document.body.appendChild(mainContent)
   createScrollToTopButton()
 
-  document.getElementById("publish-card-button").addEventListener("click", async () => {
-    isExistingCard = false
-    existingCardData = {}
-    existingCardIdentifier = ""
-    const publishForm = document.getElementById("publish-card-form")
-    publishForm.reset()
-    const linksContainer = document.getElementById("links-container")
-    linksContainer.innerHTML = `<input type="text" class="card-link" placeholder="Enter QDN link">`
-    const publishCardView = document.getElementById("publish-card-view")
-    publishCardView.style.display = "flex"
-    document.getElementById("cards-container").style.display = "none"
-  })
+  document
+    .getElementById("publish-card-button")
+    .addEventListener("click", async () => {
+      isExistingCard = false
+      existingCardData = {}
+      existingCardIdentifier = ""
+      const publishForm = document.getElementById("publish-card-form")
+      publishForm.reset()
+      const linksContainer = document.getElementById("links-container")
+      linksContainer.innerHTML = `<input type="text" class="card-link" placeholder="Enter QDN link">`
+      const publishCardView = document.getElementById("publish-card-view")
+      publishCardView.style.display = "flex"
+      document.getElementById("cards-container").style.display = "none"
+    })
 
-  document.getElementById("refresh-cards-button").addEventListener("click", async () => {
-    // Update the caches to include any new changes (e.g. new minters)
-    await initializeCachedGroups()
-  
-    // Optionally show a "refreshing" message
-    const cardsContainer = document.getElementById("cards-container")
-    cardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
-  
-    // Then reload the cards with the updated cache data
-    await loadCards(minterCardIdentifierPrefix, true)
-  })
-  
-  
+  document
+    .getElementById("refresh-cards-button")
+    .addEventListener("click", async () => {
+      // Update the caches to include any new changes (e.g. new minters)
+      await initializeCachedGroups()
 
-  document.getElementById("cancel-publish-button").addEventListener("click", async () => {
-    const cardsContainer = document.getElementById("cards-container")
-    cardsContainer.style.display = "flex"; // Restore visibility
-    const publishCardView = document.getElementById("publish-card-view")
-    publishCardView.style.display = "none"; // Hide the publish form
-  })
+      // Optionally show a "refreshing" message
+      const cardsContainer = document.getElementById("cards-container")
+      cardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
 
-  document.getElementById("add-link-button").addEventListener("click", async () => {
-    const linksContainer = document.getElementById("links-container")
-    const newLinkInput = document.createElement("input")
-    newLinkInput.type = "text"
-    newLinkInput.className = "card-link"
-    newLinkInput.placeholder = "Enter QDN link"
-    linksContainer.appendChild(newLinkInput)
-  })
+      // Then reload the cards with the updated cache data
+      await loadCards(minterCardIdentifierPrefix, true)
+    })
 
-  document.getElementById("publish-card-form").addEventListener("submit", async (event) => {
-    event.preventDefault()
-    await publishCard(minterCardIdentifierPrefix)
-  })
+  document
+    .getElementById("cancel-publish-button")
+    .addEventListener("click", async () => {
+      const cardsContainer = document.getElementById("cards-container")
+      cardsContainer.style.display = "flex" // Restore visibility
+      const publishCardView = document.getElementById("publish-card-view")
+      publishCardView.style.display = "none" // Hide the publish form
+    })
 
-  document.getElementById("time-range-select").addEventListener("change", async () => {
-    // Re-load the cards whenever user chooses a new sort option.
-    await loadCards(minterCardIdentifierPrefix)
-  })
+  document
+    .getElementById("add-link-button")
+    .addEventListener("click", async () => {
+      const linksContainer = document.getElementById("links-container")
+      const newLinkInput = document.createElement("input")
+      newLinkInput.type = "text"
+      newLinkInput.className = "card-link"
+      newLinkInput.placeholder = "Enter QDN link"
+      linksContainer.appendChild(newLinkInput)
+    })
 
-  document.getElementById("sort-select").addEventListener("change", async () => {
-    // Re-load the cards whenever user chooses a new sort option.
-    await loadCards(minterCardIdentifierPrefix)
-  })
+  document
+    .getElementById("publish-card-form")
+    .addEventListener("submit", async (event) => {
+      event.preventDefault()
+      await publishCard(minterCardIdentifierPrefix)
+    })
 
-  const showExistingCardsCheckbox = document.getElementById('show-existing-checkbox')
+  document
+    .getElementById("time-range-select")
+    .addEventListener("change", async () => {
+      // Re-load the cards whenever user chooses a new sort option.
+      await loadCards(minterCardIdentifierPrefix)
+    })
+
+  document
+    .getElementById("sort-select")
+    .addEventListener("change", async () => {
+      // Re-load the cards whenever user chooses a new sort option.
+      await loadCards(minterCardIdentifierPrefix)
+    })
+
+  const showExistingCardsCheckbox = document.getElementById(
+    "show-existing-checkbox"
+  )
   if (showExistingCardsCheckbox) {
-    showExistingCardsCheckbox.addEventListener('change', async (event) => {
+    showExistingCardsCheckbox.addEventListener("change", async (event) => {
       await loadCards(minterCardIdentifierPrefix)
     })
   }
- //Initialize Minter Group and Admin Group
+  //Initialize Minter Group and Admin Group
   await initializeCachedGroups()
- 
+
   await featureTriggerCheck()
   await loadCards(minterCardIdentifierPrefix)
 }
@@ -233,7 +270,7 @@ const initializeCachedGroups = async () => {
   try {
     const [minterGroup, minterAdmins] = await Promise.all([
       fetchMinterGroupMembers(),
-      fetchMinterGroupAdmins()
+      fetchMinterGroupAdmins(),
     ])
     cachedMinterGroup = minterGroup
     cachedMinterAdmins = minterAdmins
@@ -241,7 +278,6 @@ const initializeCachedGroups = async () => {
     console.error("Error initializing cached groups:", error)
   }
 }
-
 
 const runWithConcurrency = async (tasks, concurrency = 5) => {
   const results = []
@@ -262,7 +298,7 @@ const runWithConcurrency = async (tasks, concurrency = 5) => {
 const resolvedMinterNameByIdentifierCache = new Map()
 const getSingleSearchResource = (result) => {
   if (!result) return null
-  return Array.isArray(result) ? (result[0] || null) : result
+  return Array.isArray(result) ? result[0] || null : result
 }
 
 const extractMinterCardsMinterName = async (cardIdentifier) => {
@@ -270,21 +306,35 @@ const extractMinterCardsMinterName = async (cardIdentifier) => {
     return resolvedMinterNameByIdentifierCache.get(cardIdentifier)
   }
   // Ensure the identifier starts with the prefix
-  if ((!cardIdentifier.startsWith(minterCardIdentifierPrefix)) && (!cardIdentifier.startsWith(addRemoveIdentifierPrefix))) {
-    throw new Error('minterCard does not match identifier check')
-  } 
+  if (
+    !cardIdentifier.startsWith(minterCardIdentifierPrefix) &&
+    !cardIdentifier.startsWith(addRemoveIdentifierPrefix)
+  ) {
+    throw new Error("minterCard does not match identifier check")
+  }
   // Split the identifier into parts
-  const parts = cardIdentifier.split('-')
+  const parts = cardIdentifier.split("-")
   // Ensure the format has at least 3 parts
   if (parts.length < 3) {
-    throw new Error('Invalid identifier format')
+    throw new Error("Invalid identifier format")
   }
   try {
-    if (cardIdentifier.startsWith(minterCardIdentifierPrefix)){
-      const searchSimpleResults = await searchSimple('BLOG_POST', `${cardIdentifier}`, '', 1, 0, '', false, true)
+    if (cardIdentifier.startsWith(minterCardIdentifierPrefix)) {
+      const searchSimpleResults = await searchSimple(
+        "BLOG_POST",
+        `${cardIdentifier}`,
+        "",
+        1,
+        0,
+        "",
+        false,
+        true
+      )
       const resource = getSingleSearchResource(searchSimpleResults)
       if (!resource || !resource.name) {
-        throw new Error(`No publisher found for minter card identifier ${cardIdentifier}`)
+        throw new Error(
+          `No publisher found for minter card identifier ${cardIdentifier}`
+        )
       }
 
       const publisherName = resource.name
@@ -300,10 +350,21 @@ const extractMinterCardsMinterName = async (cardIdentifier) => {
       resolvedMinterNameByIdentifierCache.set(cardIdentifier, resolvedName)
       return resolvedName
     } else if (cardIdentifier.startsWith(addRemoveIdentifierPrefix)) {
-      const searchSimpleResults = await searchSimple('BLOG_POST', `${cardIdentifier}`, '', 1, 0, '', false, true)
+      const searchSimpleResults = await searchSimple(
+        "BLOG_POST",
+        `${cardIdentifier}`,
+        "",
+        1,
+        0,
+        "",
+        false,
+        true
+      )
       const resource = getSingleSearchResource(searchSimpleResults)
       if (!resource || !resource.name) {
-        throw new Error(`No publisher found for AR card identifier ${cardIdentifier}`)
+        throw new Error(
+          `No publisher found for AR card identifier ${cardIdentifier}`
+        )
       }
       const publisherName = resource.name
       const cardDataResponse = await qortalRequest({
@@ -313,11 +374,13 @@ const extractMinterCardsMinterName = async (cardIdentifier) => {
         identifier: cardIdentifier,
       })
       const minterName = cardDataResponse.minterName
-      if (minterName){
+      if (minterName) {
         resolvedMinterNameByIdentifierCache.set(cardIdentifier, minterName)
         return minterName
       } else {
-        console.warn(`Identifier ${cardIdentifier} is missing minterName. Falling back to publisher name.`)
+        console.warn(
+          `Identifier ${cardIdentifier} is missing minterName. Falling back to publisher name.`
+        )
         resolvedMinterNameByIdentifierCache.set(cardIdentifier, publisherName)
         return publisherName
       }
@@ -330,7 +393,7 @@ const extractMinterCardsMinterName = async (cardIdentifier) => {
 const groupAndLabelByIdentifier = (allCards) => {
   // Group by identifier
   const mapById = new Map()
-  allCards.forEach(card => {
+  allCards.forEach((card) => {
     if (!mapById.has(card.identifier)) {
       mapById.set(card.identifier, [])
     }
@@ -342,7 +405,7 @@ const groupAndLabelByIdentifier = (allCards) => {
     group.sort((a, b) => {
       const aTime = a.created || 0
       const bTime = b.created || 0
-      return aTime - bTime  // oldest first
+      return aTime - bTime // oldest first
     })
     // Mark the first as master
     group[0].isMaster = true
@@ -361,7 +424,7 @@ const groupByIdentifierOldestFirst = (allCards) => {
   // map of identifier => array of cards
   const mapById = new Map()
 
-  allCards.forEach(card => {
+  allCards.forEach((card) => {
     if (!mapById.has(card.identifier)) {
       mapById.set(card.identifier, [])
     }
@@ -390,10 +453,12 @@ const buildMinterNameGroups = async (mapById) => {
     // Filter out any cards that are not published by the 'masterPublisher'
     const masterPublisherName = masterCard.name
     // Remove any cards in this identifier group that have a different publisherName
-    const filteredGroup = group.filter(c => c.name === masterPublisherName)
+    const filteredGroup = group.filter((c) => c.name === masterPublisherName)
     // If filtering left zero cards, skip entire group
     if (!filteredGroup.length) {
-      console.warn(`All cards removed for identifier=${identifier} (different publishers). Skipping.`)
+      console.warn(
+        `All cards removed for identifier=${identifier} (different publishers). Skipping.`
+      )
       continue
     }
     // Reassign group to the filtered version, then re-define masterCard
@@ -402,15 +467,20 @@ const buildMinterNameGroups = async (mapById) => {
     // attempt to obtain minterName from the master card
     let masterMinterName
     try {
-      masterMinterName = await extractMinterCardsMinterName(masterCard.identifier)
+      masterMinterName = await extractMinterCardsMinterName(
+        masterCard.identifier
+      )
     } catch (err) {
-      console.warn(`Skipping entire group ${identifier}, no valid minterName from master`, err)
+      console.warn(
+        `Skipping entire group ${identifier}, no valid minterName from master`,
+        err
+      )
       continue
     }
     // Store an object with the minterName we extracted, plus all cards in that group
     nameGroups.push({
       minterName: masterMinterName,
-      cards: group // includes the master & updates
+      cards: group, // includes the master & updates
     })
   }
   // Combine them: minterName => array of *all* cards from all matching groups
@@ -425,7 +495,6 @@ const buildMinterNameGroups = async (mapById) => {
 
   return combinedMap
 }
-
 
 const getNewestCardPerMinterName = (combinedMap) => {
   // We'll produce an array of the newest card for each minterName, this will be utilized as the 'final filter' to display cards published/updated by unique minters.
@@ -476,13 +545,15 @@ const processARBoardCards = async (allValidCards) => {
     })
 
     // Both resolution for the duplicate QuickMythril card, and handling of all future duplicates that may be published...
-    if (group[0].identifier === 'QM-AR-card-Xw3dxL') {
-      console.warn(`This is a bug that allowed a duplicate prior to the logic displaying them based on original publisher only... displaying in reverse order...`)
+    if (group[0].identifier === "QM-AR-card-Xw3dxL") {
+      console.warn(
+        `This is a bug that allowed a duplicate prior to the logic displaying them based on original publisher only... displaying in reverse order...`
+      )
       group[0].isDuplicate = true
       for (let i = 1; i < group.length; i++) {
         group[i].isDuplicate = false
-      } 
-    }else {
+      }
+    } else {
       group[0].isDuplicate = false
       for (let i = 1; i < group.length; i++) {
         group[i].isDuplicate = true
@@ -507,7 +578,9 @@ const resolveCardCreatorAddress = async (cardResource, cardData) => {
     return cardData.creatorAddress
   }
   if (cardData?.creator) {
-    const ownerFromCreator = await fetchOwnerAddressFromNameCached(cardData.creator)
+    const ownerFromCreator = await fetchOwnerAddressFromNameCached(
+      cardData.creator
+    )
     if (ownerFromCreator) {
       return ownerFromCreator
     }
@@ -515,21 +588,104 @@ const resolveCardCreatorAddress = async (cardResource, cardData) => {
   return await fetchOwnerAddressFromNameCached(cardResource.name)
 }
 
-const getBoardResourceTimestamp = (resource) => resource?.updated || resource?.created || 0
-const getBoardResourceCacheKey = (resource) => `${resource?.name || ""}::${resource?.identifier || ""}::${getBoardResourceTimestamp(resource)}`
+const getBoardResourceTimestamp = (resource) =>
+  resource?.updated || resource?.created || 0
+const getBoardResourceCacheKey = (resource) =>
+  `${resource?.name || ""}::${
+    resource?.identifier || ""
+  }::${getBoardResourceTimestamp(resource)}`
+const getBoardResourceIdentityKey = (resource) =>
+  `${resource?.name || ""}::${resource?.identifier || ""}`
+const getOptimisticMinterBoardCardCacheKey = (publisherName, cardIdentifier) =>
+  `${publisherName || ""}::${cardIdentifier || ""}`
+const getOptimisticMinterBoardCommentCacheKey = (
+  publisherName,
+  commentIdentifier
+) => `${publisherName || ""}::${commentIdentifier || ""}`
+
+const rememberOptimisticMinterBoardCard = (
+  cardIdentifierPrefix,
+  publisherName,
+  cardIdentifier,
+  cardData,
+  timestamp = Date.now()
+) => {
+  if (!cardIdentifierPrefix || !publisherName || !cardIdentifier || !cardData)
+    return
+
+  const resource = {
+    name: publisherName,
+    service: "BLOG_POST",
+    identifier: cardIdentifier,
+    created: timestamp,
+    updated: timestamp,
+    _optimisticCard: true,
+    _cardIdentifierPrefix: cardIdentifierPrefix,
+  }
+  const cacheKey = getOptimisticMinterBoardCardCacheKey(
+    publisherName,
+    cardIdentifier
+  )
+  optimisticMinterBoardCardCache.set(cacheKey, {
+    cardIdentifierPrefix,
+    resource,
+    cardData: {
+      ...cardData,
+      _optimisticPending: true,
+    },
+  })
+  resolvedMinterNameByIdentifierCache.set(
+    cardIdentifier,
+    cardData.creator || publisherName
+  )
+}
+
+const getOptimisticMinterBoardResources = (
+  cardIdentifierPrefix,
+  afterTime = 0,
+  existingResourcesByIdentity = new Map()
+) => {
+  const resources = []
+  for (const [cacheKey, entry] of optimisticMinterBoardCardCache.entries()) {
+    if (
+      !entry ||
+      entry.cardIdentifierPrefix !== cardIdentifierPrefix ||
+      !entry.resource
+    )
+      continue
+    const resourceTimestamp = getBoardResourceTimestamp(entry.resource)
+    if (afterTime > 0 && resourceTimestamp < afterTime) continue
+
+    const identityKey = getBoardResourceIdentityKey(entry.resource)
+    const existingResource = existingResourcesByIdentity.get(identityKey)
+    const existingTimestamp = getBoardResourceTimestamp(existingResource)
+    if (existingResource && existingTimestamp >= resourceTimestamp) {
+      optimisticMinterBoardCardCache.delete(cacheKey)
+      continue
+    }
+
+    resources.push(entry.resource)
+  }
+  return resources
+}
 
 const getMinterBoardSearchCacheEntry = (cardIdentifierPrefix) => {
   if (!minterBoardSearchCacheByPrefix.has(cardIdentifierPrefix)) {
     minterBoardSearchCacheByPrefix.set(cardIdentifierPrefix, {
       resourcesByKey: new Map(),
       maxDaysCovered: 0,
-      hasAllRange: false
+      hasAllRange: false,
     })
   }
   return minterBoardSearchCacheByPrefix.get(cardIdentifierPrefix)
 }
 
-const fetchCachedBoardSearchResources = async (cardIdentifierPrefix, dayRange, afterTime, forceSearch = false) => {
+const fetchCachedBoardSearchResources = async (
+  cardIdentifierPrefix,
+  dayRange,
+  afterTime,
+  forceSearch = false
+) => {
   const cacheEntry = getMinterBoardSearchCacheEntry(cardIdentifierPrefix)
   if (forceSearch) {
     cacheEntry.resourcesByKey.clear()
@@ -537,15 +693,29 @@ const fetchCachedBoardSearchResources = async (cardIdentifierPrefix, dayRange, a
     cacheEntry.hasAllRange = false
   }
 
-  const cacheCoversRange = dayRange === 0
-    ? cacheEntry.hasAllRange
-    : (cacheEntry.hasAllRange || cacheEntry.maxDaysCovered >= dayRange)
+  const cacheCoversRange =
+    dayRange === 0
+      ? cacheEntry.hasAllRange
+      : cacheEntry.hasAllRange || cacheEntry.maxDaysCovered >= dayRange
 
   if (!cacheCoversRange) {
-    const fetched = await searchSimple('BLOG_POST', cardIdentifierPrefix, '', 0, 0, '', false, true, afterTime)
+    const fetched = await searchSimple(
+      "BLOG_POST",
+      cardIdentifierPrefix,
+      "",
+      0,
+      0,
+      "",
+      false,
+      true,
+      afterTime
+    )
     const fetchedArray = Array.isArray(fetched) ? fetched : []
     for (const resource of fetchedArray) {
-      cacheEntry.resourcesByKey.set(getBoardResourceCacheKey(resource), resource)
+      cacheEntry.resourcesByKey.set(
+        getBoardResourceCacheKey(resource),
+        resource
+      )
     }
     if (dayRange === 0) {
       cacheEntry.hasAllRange = true
@@ -555,13 +725,37 @@ const fetchCachedBoardSearchResources = async (cardIdentifierPrefix, dayRange, a
   }
 
   const allCached = Array.from(cacheEntry.resourcesByKey.values())
+  const existingResourcesByIdentity = new Map(
+    allCached.map((resource) => [
+      getBoardResourceIdentityKey(resource),
+      resource,
+    ])
+  )
+  const optimisticResources = getOptimisticMinterBoardResources(
+    cardIdentifierPrefix,
+    afterTime,
+    existingResourcesByIdentity
+  )
+  const mergedCached = [...optimisticResources, ...allCached]
   if (afterTime > 0) {
-    return allCached.filter((resource) => getBoardResourceTimestamp(resource) >= afterTime)
+    return mergedCached.filter(
+      (resource) => getBoardResourceTimestamp(resource) >= afterTime
+    )
   }
-  return allCached
+  return mergedCached
 }
 
 const fetchMinterBoardCardDataCached = async (cardResource) => {
+  const optimisticEntry = optimisticMinterBoardCardCache.get(
+    getOptimisticMinterBoardCardCacheKey(
+      cardResource?.name,
+      cardResource?.identifier
+    )
+  )
+  if (optimisticEntry?.cardData) {
+    return optimisticEntry.cardData
+  }
+
   const cacheKey = getBoardResourceCacheKey(cardResource)
   if (minterBoardCardDataCache.has(cacheKey)) {
     return minterBoardCardDataCache.get(cacheKey)
@@ -570,10 +764,84 @@ const fetchMinterBoardCardDataCached = async (cardResource) => {
     action: "FETCH_QDN_RESOURCE",
     name: cardResource.name,
     service: "BLOG_POST",
-    identifier: cardResource.identifier
+    identifier: cardResource.identifier,
   })
   minterBoardCardDataCache.set(cacheKey, data)
   return data
+}
+
+const rememberOptimisticMinterBoardComment = (
+  cardIdentifier,
+  publisherName,
+  commentIdentifier,
+  commentData,
+  timestamp = Date.now()
+) => {
+  if (!cardIdentifier || !publisherName || !commentIdentifier || !commentData)
+    return
+
+  const resource = {
+    name: publisherName,
+    service: "BLOG_POST",
+    identifier: commentIdentifier,
+    created: timestamp,
+    updated: timestamp,
+    _optimisticComment: true,
+    _cardIdentifier: cardIdentifier,
+  }
+  optimisticMinterBoardCommentCache.set(
+    getOptimisticMinterBoardCommentCacheKey(publisherName, commentIdentifier),
+    {
+      cardIdentifier,
+      resource,
+      commentData: {
+        ...commentData,
+        _optimisticPending: true,
+      },
+    }
+  )
+}
+
+const getOptimisticMinterBoardComments = (
+  cardIdentifier,
+  existingResourcesByIdentity = new Map()
+) => {
+  const comments = []
+  for (const [cacheKey, entry] of optimisticMinterBoardCommentCache.entries()) {
+    if (!entry || entry.cardIdentifier !== cardIdentifier || !entry.resource)
+      continue
+
+    const identityKey = getBoardResourceIdentityKey(entry.resource)
+    const existingResource = existingResourcesByIdentity.get(identityKey)
+    const existingTimestamp = getBoardResourceTimestamp(existingResource)
+    const optimisticTimestamp = getBoardResourceTimestamp(entry.resource)
+    if (existingResource && existingTimestamp >= optimisticTimestamp) {
+      optimisticMinterBoardCommentCache.delete(cacheKey)
+      continue
+    }
+
+    comments.push(entry.resource)
+  }
+  return comments
+}
+
+const fetchMinterBoardCommentData = async (commentResource) => {
+  const optimisticEntry = optimisticMinterBoardCommentCache.get(
+    getOptimisticMinterBoardCommentCacheKey(
+      commentResource?.name,
+      commentResource?.identifier
+    )
+  )
+  if (optimisticEntry?.commentData) {
+    return optimisticEntry.commentData
+  }
+
+  return await qortalRequest({
+    action: "FETCH_QDN_RESOURCE",
+    name: commentResource.name,
+    service: "BLOG_POST",
+    identifier: commentResource.identifier,
+  })
 }
 
 const detachMinterBoardInfiniteScroll = () => {
@@ -588,12 +856,18 @@ const updateMinterBoardCounterText = () => {
   if (!counterSpan) return
   const displayed = minterBoardInfiniteState.displayedCount
   const minted = minterBoardInfiniteState.mintedCount
-  const total = minterBoardInfiniteState.totalCount || minterBoardInfiniteState.cards.length || 0
+  const total =
+    minterBoardInfiniteState.totalCount ||
+    minterBoardInfiniteState.cards.length ||
+    0
 
   if (minterBoardInfiniteState.isBackgroundLoading && total > 0) {
-    const loadingHtml = (typeof getBoardInlineLoadingHTML === "function")
-      ? getBoardInlineLoadingHTML(`Loading cards ${Math.min(displayed, total)}/${total}`)
-      : "Loading cards..."
+    const loadingHtml =
+      typeof getBoardInlineLoadingHTML === "function"
+        ? getBoardInlineLoadingHTML(
+            `Loading cards ${Math.min(displayed, total)}/${total}`
+          )
+        : "Loading cards..."
     counterSpan.innerHTML = `${loadingHtml} <span class="board-progress-muted">(${minted} minters)</span>`
     return
   }
@@ -603,7 +877,8 @@ const updateMinterBoardCounterText = () => {
 
 const maybeRenderMoreMinterBoardCards = async (loadToken) => {
   if (loadToken !== minterBoardInfiniteState.loadToken) return
-  if (minterBoardInfiniteState.inFlight || minterBoardInfiniteState.complete) return
+  if (minterBoardInfiniteState.inFlight || minterBoardInfiniteState.complete)
+    return
   await renderMinterBoardCardBatch(loadToken)
 }
 
@@ -612,7 +887,10 @@ const startMinterBoardBackgroundRender = (loadToken) => {
   minterBoardInfiniteState.backgroundRunnerToken = loadToken
   const run = async () => {
     try {
-      while (loadToken === minterBoardInfiniteState.loadToken && !minterBoardInfiniteState.complete) {
+      while (
+        loadToken === minterBoardInfiniteState.loadToken &&
+        !minterBoardInfiniteState.complete
+      ) {
         await maybeRenderMoreMinterBoardCards(loadToken)
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
@@ -630,7 +908,8 @@ const startMinterBoardBackgroundRender = (loadToken) => {
 const renderMinterBoardCardBatch = async (loadToken) => {
   // Kakashi Note: Load token checks cancel stale render work when filters or sorts change mid-load.
   if (loadToken !== minterBoardInfiniteState.loadToken) return
-  if (minterBoardInfiniteState.inFlight || minterBoardInfiniteState.complete) return
+  if (minterBoardInfiniteState.inFlight || minterBoardInfiniteState.complete)
+    return
   const cardsContainer = minterBoardInfiniteState.container
   if (!cardsContainer || !document.body.contains(cardsContainer)) {
     minterBoardInfiniteState.complete = true
@@ -642,7 +921,10 @@ const renderMinterBoardCardBatch = async (loadToken) => {
   }
 
   const start = minterBoardInfiniteState.cursor
-  const end = Math.min(start + MINTER_SCROLL_BATCH_SIZE, minterBoardInfiniteState.cards.length)
+  const end = Math.min(
+    start + MINTER_SCROLL_BATCH_SIZE,
+    minterBoardInfiniteState.cards.length
+  )
   if (start >= end) {
     minterBoardInfiniteState.complete = true
     minterBoardInfiniteState.isBackgroundLoading = false
@@ -660,7 +942,10 @@ const renderMinterBoardCardBatch = async (loadToken) => {
       minterBoardInfiniteState.inFlight = false
       return
     }
-    cardsContainer.insertAdjacentHTML("beforeend", createSkeletonCardHTML(card.identifier))
+    cardsContainer.insertAdjacentHTML(
+      "beforeend",
+      createSkeletonCardHTML(card.identifier)
+    )
   }
 
   const finalizeTasks = batch.map((card) => {
@@ -677,13 +962,19 @@ const renderMinterBoardCardBatch = async (loadToken) => {
           return
         }
 
-        const pollPublisherAddress = await getPollOwnerAddressCached(data.poll)
-        const cardPublisherAddress = await fetchOwnerAddressFromNameCached(card.name)
-        if (pollPublisherAddress !== cardPublisherAddress) {
-          if (loadToken === minterBoardInfiniteState.loadToken) {
-            removeSkeleton(card.identifier)
+        if (!card._optimisticCard) {
+          const pollPublisherAddress = await getPollOwnerAddressCached(
+            data.poll
+          )
+          const cardPublisherAddress = await fetchOwnerAddressFromNameCached(
+            card.name
+          )
+          if (pollPublisherAddress !== cardPublisherAddress) {
+            if (loadToken === minterBoardInfiniteState.loadToken) {
+              removeSkeleton(card.identifier)
+            }
+            return
           }
-          return
         }
 
         if (minterBoardInfiniteState.isARBoard) {
@@ -778,7 +1069,9 @@ const renderMinterBoardCardBatch = async (loadToken) => {
 
   if (loadToken !== minterBoardInfiniteState.loadToken) return
 
-  if (minterBoardInfiniteState.cursor >= minterBoardInfiniteState.cards.length) {
+  if (
+    minterBoardInfiniteState.cursor >= minterBoardInfiniteState.cards.length
+  ) {
     minterBoardInfiniteState.complete = true
     minterBoardInfiniteState.isBackgroundLoading = false
   }
@@ -814,7 +1107,12 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
     }
   }
 
-  if ((!cachedMinterGroup || cachedMinterGroup.length === 0) || (!cachedMinterAdmins || cachedMinterAdmins.length === 0)) {
+  if (
+    !cachedMinterGroup ||
+    cachedMinterGroup.length === 0 ||
+    !cachedMinterAdmins ||
+    cachedMinterAdmins.length === 0
+  ) {
     await initializeCachedGroups()
   }
   const cardsContainer = document.getElementById("cards-container")
@@ -844,7 +1142,12 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
   }
 
   try {
-    const rawResults = await fetchCachedBoardSearchResources(cardIdentifierPrefix, dayRange, afterTime, forceSearch)
+    const rawResults = await fetchCachedBoardSearchResources(
+      cardIdentifierPrefix,
+      dayRange,
+      afterTime,
+      forceSearch
+    )
     if (loadToken !== minterBoardInfiniteState.loadToken) return
 
     if (!rawResults || rawResults.length === 0) {
@@ -855,9 +1158,13 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
       return
     }
 
-    const validated = (await Promise.all(
-      rawResults.map(async (r) => (await validateCardStructure(r)) ? r : null)
-    )).filter(Boolean)
+    const validated = (
+      await Promise.all(
+        rawResults.map(async (r) =>
+          (await validateCardStructure(r)) ? r : null
+        )
+      )
+    ).filter(Boolean)
     if (loadToken !== minterBoardInfiniteState.loadToken) return
 
     if (validated.length === 0) {
@@ -880,11 +1187,15 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
     if (sortSelect) {
       selectedSort = sortSelect.value
     }
-    const isVoteSort = selectedSort === "least-votes" || selectedSort === "most-votes"
+    const isVoteSort =
+      selectedSort === "least-votes" || selectedSort === "most-votes"
     if (isVoteSort) {
       // Kakashi Note: Vote sorting needs extra poll fetches, so we show explicit status instead of a silent delay.
-      cardsContainer.innerHTML = getBoardLoadingHTML("Loading and resorting cards by votes...")
-      if (counterSpan) counterSpan.textContent = "(loading and resorting by votes...)"
+      cardsContainer.innerHTML = getBoardLoadingHTML(
+        "Loading and resorting cards by votes..."
+      )
+      if (counterSpan)
+        counterSpan.textContent = "(loading and resorting by votes...)"
     }
 
     const getCardTimestamp = (card) => card.updated || card.created || 0
@@ -896,19 +1207,25 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
 
     if (selectedSort === "name" || selectedSort === "nominee-name") {
       const nomineeNameByCard = new WeakMap()
-      await Promise.all(processedCards.map(async (card) => {
-        const cachedNominee = resolvedMinterNameByIdentifierCache.get(card.identifier)
-        if (cachedNominee) {
-          nomineeNameByCard.set(card, cachedNominee)
-          return
-        }
-        try {
-          const nomineeName = await extractMinterCardsMinterName(card.identifier)
-          nomineeNameByCard.set(card, nomineeName || "")
-        } catch (error) {
-          nomineeNameByCard.set(card, card.name || "")
-        }
-      }))
+      await Promise.all(
+        processedCards.map(async (card) => {
+          const cachedNominee = resolvedMinterNameByIdentifierCache.get(
+            card.identifier
+          )
+          if (cachedNominee) {
+            nomineeNameByCard.set(card, cachedNominee)
+            return
+          }
+          try {
+            const nomineeName = await extractMinterCardsMinterName(
+              card.identifier
+            )
+            nomineeNameByCard.set(card, nomineeName || "")
+          } catch (error) {
+            nomineeNameByCard.set(card, card.name || "")
+          }
+        })
+      )
 
       processedCards.sort((a, b) => {
         const nomineeA = nomineeNameByCard.get(a) || ""
@@ -926,10 +1243,13 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
     } else if (selectedSort === "recent-comments") {
       // Compute comment timestamps only when this sort is selected.
       for (const card of processedCards) {
-        card.newestCommentTimestamp = await getNewestCommentTimestamp(card.identifier)
+        card.newestCommentTimestamp = await getNewestCommentTimestamp(
+          card.identifier
+        )
       }
-      processedCards.sort((a, b) =>
-        (b.newestCommentTimestamp || 0) - (a.newestCommentTimestamp || 0)
+      processedCards.sort(
+        (a, b) =>
+          (b.newestCommentTimestamp || 0) - (a.newestCommentTimestamp || 0)
       )
     } else if (selectedSort === "least-votes") {
       await applyVoteSortingData(processedCards, /* ascending= */ true)
@@ -949,7 +1269,6 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
     updateMinterBoardCounterText()
 
     startMinterBoardBackgroundRender(loadToken)
-
   } catch (error) {
     if (loadToken !== minterBoardInfiniteState.loadToken) return
     minterBoardInfiniteState.isBackgroundLoading = false
@@ -985,11 +1304,13 @@ const verifyMinter = async (minterName) => {
     const minterGroup = cachedMinterGroup
     // const adminGroup = await fetchMinterGroupAdmins()
     const adminGroup = cachedMinterAdmins
-    const minterGroupAddresses = minterGroup.map(m => m.member)
-    const adminGroupAddresses = adminGroup.map(m => m.member)
+    const minterGroupAddresses = minterGroup.map((m) => m.member)
+    const adminGroupAddresses = adminGroup.map((m) => m.member)
 
-    return (minterGroupAddresses.includes(minterAddress) ||
-            adminGroupAddresses.includes(minterAddress))
+    return (
+      minterGroupAddresses.includes(minterAddress) ||
+      adminGroupAddresses.includes(minterAddress)
+    )
   } catch (err) {
     console.warn("verifyMinter error:", err)
     return false
@@ -1004,12 +1325,7 @@ const applyVoteSortingData = async (cards, ascending = true) => {
 
   for (const card of cards) {
     try {
-      const cardDataResponse = await qortalRequest({
-        action: "FETCH_QDN_RESOURCE",
-        name: card.name,
-        service: "BLOG_POST",
-        identifier: card.identifier,
-      })
+      const cardDataResponse = await fetchMinterBoardCardDataCached(card)
       if (!cardDataResponse || !cardDataResponse.poll) {
         card._adminVotes = 0
         card._adminYes = 0
@@ -1017,7 +1333,7 @@ const applyVoteSortingData = async (cards, ascending = true) => {
         card._minterYes = 0
         continue
       }
-      const pollResults = await fetchPollResultsCached(cardDataResponse.poll);
+      const pollResults = await fetchPollResultsCached(cardDataResponse.poll)
       const { adminYes, adminNo, minterYes, minterNo } = await processPollData(
         pollResults,
         minterGroupMembers,
@@ -1030,7 +1346,10 @@ const applyVoteSortingData = async (cards, ascending = true) => {
       card._minterVotes = minterYes + minterNo
       card._minterYes = minterYes
     } catch (error) {
-      console.warn(`Error fetching or processing poll for card ${card.identifier}:`, error)
+      console.warn(
+        `Error fetching or processing poll for card ${card.identifier}:`,
+        error
+      )
       card._adminVotes = 0
       card._adminYes = 0
       card._minterVotes = 0
@@ -1106,7 +1425,7 @@ const resolveNomineeIdentity = async (rawNomineeInput) => {
   if (directNameInfo && directNameInfo.owner) {
     return {
       nomineeName: directNameInfo.name || nomineeInput,
-      nomineeAddress: directNameInfo.owner
+      nomineeAddress: directNameInfo.owner,
     }
   }
 
@@ -1116,31 +1435,45 @@ const resolveNomineeIdentity = async (rawNomineeInput) => {
     if (resolvedNameInfo && resolvedNameInfo.owner) {
       return {
         nomineeName: resolvedNameInfo.name || nameFromAddress,
-        nomineeAddress: resolvedNameInfo.owner
+        nomineeAddress: resolvedNameInfo.owner,
       }
     }
   }
 
-  return { error: "Nominee must have a registered Qortal name. Enter a valid name, or an address that has a registered name." }
+  return {
+    error:
+      "Nominee must have a registered Qortal name. Enter a valid name, or an address that has a registered name.",
+  }
 }
 
 // Function to find existing nomination cards for a nominee ----------------------------------------
-const fetchExistingCardsByNominee = async (cardIdentifierPrefix, nomineeName) => {
+const fetchExistingCardsByNominee = async (
+  cardIdentifierPrefix,
+  nomineeName
+) => {
   try {
-    const response = await searchSimple('BLOG_POST', `${cardIdentifierPrefix}`, '', 0, 0, '', true)
+    const response = await searchSimple(
+      "BLOG_POST",
+      `${cardIdentifierPrefix}`,
+      "",
+      0,
+      0,
+      "",
+      true
+    )
 
     if (!response || !Array.isArray(response) || response.length === 0) {
       return []
     }
 
     const validatedCards = await Promise.all(
-      response.map(async card => {
+      response.map(async (card) => {
         const isValid = await validateCardStructure(card)
         return isValid ? card : null
       })
     )
 
-    const validCards = validatedCards.filter(card => card !== null)
+    const validCards = validatedCards.filter((card) => card !== null)
 
     if (!validCards.length) {
       return []
@@ -1148,14 +1481,14 @@ const fetchExistingCardsByNominee = async (cardIdentifierPrefix, nomineeName) =>
 
     // Kakashi Note: Duplicate nomination checks are keyed by nominee identity, not by the publishing account.
     const normalizedNominee = nomineeName.toLowerCase()
-    const tasks = validCards.map(card => {
+    const tasks = validCards.map((card) => {
       return async () => {
         try {
           const cardDataResponse = await qortalRequest({
             action: "FETCH_QDN_RESOURCE",
             name: card.name,
             service: "BLOG_POST",
-            identifier: card.identifier
+            identifier: card.identifier,
           })
           const candidateName = (cardDataResponse?.creator || "").toLowerCase()
           if (candidateName !== normalizedNominee) {
@@ -1164,10 +1497,13 @@ const fetchExistingCardsByNominee = async (cardIdentifierPrefix, nomineeName) =>
 
           return {
             resource: card,
-            cardDataResponse
+            cardDataResponse,
           }
         } catch (error) {
-          console.warn(`Failed to read card ${card.identifier} for nominee matching`, error)
+          console.warn(
+            `Failed to read card ${card.identifier} for nominee matching`,
+            error
+          )
           return null
         }
       }
@@ -1194,7 +1530,8 @@ const validateCardStructure = async (card) => {
     typeof card === "object" &&
     card.name &&
     card.service === "BLOG_POST" &&
-    card.identifier && !card.identifier.includes("comment") &&
+    card.identifier &&
+    !card.identifier.includes("comment") &&
     card.created
   )
 }
@@ -1202,17 +1539,18 @@ const validateCardStructure = async (card) => {
 // Load existing card data passed, into the form for editing -------------------------------------
 const loadCardIntoForm = async (cardData) => {
   console.log("Loading existing card data:", cardData)
-  document.getElementById("nominee-name-input").value = cardData.creator || cardData.creatorAddress || ""
+  document.getElementById("nominee-name-input").value =
+    cardData.creator || cardData.creatorAddress || ""
   document.getElementById("card-header").value = cardData.header
   document.getElementById("card-content").value = cardData.content
 
   const linksContainer = document.getElementById("links-container")
   linksContainer.innerHTML = ""
-  ;(cardData.links || []).forEach(link => {
+  ;(cardData.links || []).forEach((link) => {
     const linkInput = document.createElement("input")
     linkInput.type = "text"
     linkInput.className = "card-link"
-    linkInput.value = link;
+    linkInput.value = link
     linksContainer.appendChild(linkInput)
   })
 
@@ -1233,12 +1571,14 @@ const publishCard = async (cardIdentifierPrefix) => {
 
   const minterGroupData = cachedMinterGroup
   const minterAdminData = cachedMinterAdmins
-  const minterGroupAddresses = minterGroupData.map(m => m.member)
-  const minterAdminAddresses = minterAdminData.map(m => m.member)
+  const minterGroupAddresses = minterGroupData.map((m) => m.member)
+  const minterAdminAddresses = minterAdminData.map((m) => m.member)
   const userAddress = userState.accountAddress
   const userName = userState.accountName
 
-  const canPublishNomination = minterGroupAddresses.includes(userAddress) || minterAdminAddresses.includes(userAddress)
+  const canPublishNomination =
+    minterGroupAddresses.includes(userAddress) ||
+    minterAdminAddresses.includes(userAddress)
   // Kakashi Note: Nomination-only policy requires MINTER membership/admin role plus level 5+ before publishing.
   if (!canPublishNomination) {
     alert("You have to be a level 5 or above Minter to nominate a user")
@@ -1249,7 +1589,10 @@ const publishCard = async (cardIdentifierPrefix) => {
   try {
     userAddressInfo = await getAddressInfo(userAddress)
   } catch (error) {
-    console.error("Unable to fetch current user address info for level check:", error)
+    console.error(
+      "Unable to fetch current user address info for level check:",
+      error
+    )
     alert("Unable to verify your minter level right now. Please try again.")
     return
   }
@@ -1261,7 +1604,9 @@ const publishCard = async (cardIdentifierPrefix) => {
     return
   }
 
-  const nomineeInput = document.getElementById("nominee-name-input").value.trim()
+  const nomineeInput = document
+    .getElementById("nominee-name-input")
+    .value.trim()
   const nomineeResolution = await resolveNomineeIdentity(nomineeInput)
   if (nomineeResolution.error) {
     alert(nomineeResolution.error)
@@ -1272,36 +1617,50 @@ const publishCard = async (cardIdentifierPrefix) => {
   const normalizedNomineeName = (nomineeName || "").toLowerCase()
   const normalizedUserName = (userName || "").toLowerCase()
   // Kakashi Note: Self-nominations are blocked to enforce peer nomination and reduce self-published spam.
-  if (normalizedNomineeName === normalizedUserName || nomineeAddress === userAddress) {
+  if (
+    normalizedNomineeName === normalizedUserName ||
+    nomineeAddress === userAddress
+  ) {
     alert("Self-nominations are disabled. Please nominate another user.")
     return
   }
 
   const nomineeAlreadyMinter = await verifyMinterCached(nomineeName)
   if (nomineeAlreadyMinter) {
-    alert(`${nomineeName} is already a minter/admin. Nomination card not needed.`)
+    alert(
+      `${nomineeName} is already a minter/admin. Nomination card not needed.`
+    )
     return
   }
 
   const header = document.getElementById("card-header").value.trim()
   const content = document.getElementById("card-content").value.trim()
   const links = Array.from(document.querySelectorAll(".card-link"))
-    .map(input => input.value.trim())
-    .filter(link => link.startsWith("qortal://"))
+    .map((input) => input.value.trim())
+    .filter((link) => link.startsWith("qortal://"))
 
   if (!header || !content) {
     alert("Header and content are required!")
     return
   }
 
-  const nomineeMatches = await fetchExistingCardsByNominee(cardIdentifierPrefix, nomineeName)
-  const samePublisherMatches = nomineeMatches.filter(m => m.resource.name === userName)
-  const otherPublisherMatches = nomineeMatches.filter(m => m.resource.name !== userName)
+  const nomineeMatches = await fetchExistingCardsByNominee(
+    cardIdentifierPrefix,
+    nomineeName
+  )
+  const samePublisherMatches = nomineeMatches.filter(
+    (m) => m.resource.name === userName
+  )
+  const otherPublisherMatches = nomineeMatches.filter(
+    (m) => m.resource.name !== userName
+  )
 
   // Kakashi Note: Same publisher can update their nomination; different publisher for same nominee is blocked as duplicate.
   if (otherPublisherMatches.length > 0) {
     const existingPublisher = otherPublisherMatches[0].resource.name
-    alert(`A nomination card for ${nomineeName} already exists (published by ${existingPublisher}). Duplicate nominations are blocked.`)
+    alert(
+      `A nomination card for ${nomineeName} already exists (published by ${existingPublisher}). Duplicate nominations are blocked.`
+    )
     return
   }
 
@@ -1316,14 +1675,20 @@ const publishCard = async (cardIdentifierPrefix) => {
     existingCardData = {}
   }
 
-  if (isExistingCard && (!existingCardData || Object.keys(existingCardData).length === 0)) {
-    alert("Unable to load your existing nomination card for update. Please refresh and try again.")
+  if (
+    isExistingCard &&
+    (!existingCardData || Object.keys(existingCardData).length === 0)
+  ) {
+    alert(
+      "Unable to load your existing nomination card for update. Please refresh and try again."
+    )
     return
   }
 
-  const cardIdentifier = isExistingCard && existingCardIdentifier
-    ? existingCardIdentifier
-    : `${cardIdentifierPrefix}-${await uid()}`
+  const cardIdentifier =
+    isExistingCard && existingCardIdentifier
+      ? existingCardIdentifier
+      : `${cardIdentifierPrefix}-${await uid()}`
 
   let existingPollName
   if (existingCardData && existingCardData.poll) {
@@ -1343,13 +1708,15 @@ const publishCard = async (cardIdentifierPrefix) => {
     publishedBy: userName,
     publishedByAddress: userAddress,
     timestamp: Date.now(),
-    poll: pollName // either the existing poll or a new one
+    poll: pollName, // either the existing poll or a new one
   }
 
   try {
     let base64CardData = await objectToBase64(cardData)
     if (!base64CardData) {
-      console.log(`initial base64 object creation with objectToBase64 failed, using btoa...`)
+      console.log(
+        `initial base64 object creation with objectToBase64 failed, using btoa...`
+      )
       base64CardData = btoa(JSON.stringify(cardData))
     }
 
@@ -1366,17 +1733,27 @@ const publishCard = async (cardIdentifierPrefix) => {
         action: "CREATE_POLL",
         pollName,
         pollDescription,
-        pollOptions: ['Yes, No'],
+        pollOptions: ["Yes, No"],
         pollOwnerAddress: userAddress,
       })
       if (!isExistingCard) {
         alert(`Nomination card for ${nomineeName} published successfully!`)
       } else {
-        alert(`Nomination card for ${nomineeName} updated, and a new poll was created (existing poll missing).`)
+        alert(
+          `Nomination card for ${nomineeName} updated, and a new poll was created (existing poll missing).`
+        )
       }
     } else {
       alert(`Nomination card for ${nomineeName} updated successfully!`)
     }
+
+    rememberOptimisticMinterBoardCard(
+      cardIdentifierPrefix,
+      userName,
+      cardIdentifier,
+      cardData,
+      cardData.timestamp
+    )
 
     isExistingCard = false
     existingCardData = {}
@@ -1387,18 +1764,26 @@ const publishCard = async (cardIdentifierPrefix) => {
     document.getElementById("cards-container").style.display = "flex"
 
     await loadCards(minterCardIdentifierPrefix, true)
-
   } catch (error) {
     console.error("Error publishing card or poll:", error)
     alert("Failed to publish card and poll.")
   }
 }
 
-
 let globalVoterMap = new Map()
 
-const processPollData= async (pollData, minterGroupMembers, minterAdmins, creator, cardIdentifier) => {
-  if (!pollData || !Array.isArray(pollData.voteWeights) || !Array.isArray(pollData.votes)) {
+const processPollData = async (
+  pollData,
+  minterGroupMembers,
+  minterAdmins,
+  creator,
+  cardIdentifier
+) => {
+  if (
+    !pollData ||
+    !Array.isArray(pollData.voteWeights) ||
+    !Array.isArray(pollData.votes)
+  ) {
     console.warn("Poll data is missing or invalid. pollData:", pollData)
     return {
       adminYes: 0,
@@ -1410,37 +1795,42 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
       totalYesWeight: 0,
       totalNoWeight: 0,
       detailsHtml: `<p>Poll data is invalid or missing.</p>`,
-      userVote: null
+      userVote: null,
     }
   }
 
-  const memberAddresses = minterGroupMembers.map(m => m.member)
-  const minterAdminAddresses = minterAdmins.map(m => m.member)
+  const memberAddresses = minterGroupMembers.map((m) => m.member)
+  const minterAdminAddresses = minterAdmins.map((m) => m.member)
   const adminGroupsMembers = await fetchAllAdminGroupsMembers()
   const featureTriggerPassed = await featureTriggerCheck()
-  const groupAdminAddresses = adminGroupsMembers.map(m => m.member)
+  const groupAdminAddresses = adminGroupsMembers.map((m) => m.member)
   let adminAddresses = [...minterAdminAddresses]
 
   if (!featureTriggerPassed) {
-    console.log(`featureTrigger is NOT passed, only showing admin results from Minter Admins and Group Admins`)
+    console.log(
+      `featureTrigger is NOT passed, only showing admin results from Minter Admins and Group Admins`
+    )
     adminAddresses = [...minterAdminAddresses, ...groupAdminAddresses]
   }
-  
-  let adminYes = 0, adminNo = 0
-  let minterYes = 0, minterNo = 0
-  let yesWeight = 0, noWeight = 0
+
+  let adminYes = 0,
+    adminNo = 0
+  let minterYes = 0,
+    minterNo = 0
+  let yesWeight = 0,
+    noWeight = 0
   let userVote = null
 
   for (const w of pollData.voteWeights) {
-    if (w.optionName.toLowerCase() === 'yes') {
+    if (w.optionName.toLowerCase() === "yes") {
       yesWeight = w.voteWeight
-    } else if (w.optionName.toLowerCase() === 'no') {
+    } else if (w.optionName.toLowerCase() === "no") {
       noWeight = w.voteWeight
     }
   }
 
   const voterPromises = pollData.votes.map(async (vote) => {
-    const optionIndex = vote.optionIndex; // 0 => yes, 1 => no
+    const optionIndex = vote.optionIndex // 0 => yes, 1 => no
     const voterPublicKey = vote.voterPublicKey
     const voterAddress = await getAddressFromPublicKey(voterPublicKey)
 
@@ -1454,7 +1844,9 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
       } else if (memberAddresses.includes(voterAddress)) {
         minterYes++
       } else {
-        console.log(`voter ${voterAddress} is not a minter nor an admin... Not included in aggregates.`)
+        console.log(
+          `voter ${voterAddress} is not a minter nor an admin... Not included in aggregates.`
+        )
       }
     } else if (optionIndex === 1) {
       if (adminAddresses.includes(voterAddress)) {
@@ -1462,16 +1854,18 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
       } else if (memberAddresses.includes(voterAddress)) {
         minterNo++
       } else {
-        console.log(`voter ${voterAddress} is not a minter nor an admin... Not included in aggregates.`)
+        console.log(
+          `voter ${voterAddress} is not a minter nor an admin... Not included in aggregates.`
+        )
       }
     }
 
-    let voterName = ''
+    let voterName = ""
     try {
       const nameInfo = await getNameFromAddress(voterAddress)
       if (nameInfo) {
         voterName = nameInfo
-        if (nameInfo === voterAddress) voterName = ''
+        if (nameInfo === voterAddress) voterName = ""
       }
     } catch (err) {
       console.warn(`No name for address ${voterAddress}`, err)
@@ -1486,7 +1880,7 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
     }
     const isAdmin = adminAddresses.includes(voterAddress)
     const isMinter = memberAddresses.includes(voterAddress)
-    
+
     return {
       optionIndex,
       voterPublicKey,
@@ -1494,7 +1888,7 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
       voterName,
       isAdmin,
       isMinter,
-      blocksMinted
+      blocksMinted,
     }
   })
 
@@ -1507,23 +1901,30 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
   for (const v of allVoters) {
     if (v.optionIndex === 0) {
       yesVoters.push(v)
-      totalMinterAndAdminYesWeight+=v.blocksMinted
+      totalMinterAndAdminYesWeight += v.blocksMinted
     } else if (v.optionIndex === 1) {
       noVoters.push(v)
-      totalMinterAndAdminNoWeight+=v.blocksMinted
+      totalMinterAndAdminNoWeight += v.blocksMinted
     }
   }
 
-  yesVoters.sort((a,b) => b.blocksMinted - a.blocksMinted)
-  noVoters.sort((a,b) => b.blocksMinted - a.blocksMinted)
-  const sortedAllVoters = allVoters.sort((a,b) => b.blocksMinted - a.blocksMinted)
+  yesVoters.sort((a, b) => b.blocksMinted - a.blocksMinted)
+  noVoters.sort((a, b) => b.blocksMinted - a.blocksMinted)
+  const sortedAllVoters = allVoters.sort(
+    (a, b) => b.blocksMinted - a.blocksMinted
+  )
   await createVoterMap(sortedAllVoters, cardIdentifier)
 
-  const yesTableHtml = buildVotersTableHtml(yesVoters, /* tableColor= */ "green")
+  const yesTableHtml = buildVotersTableHtml(
+    yesVoters,
+    /* tableColor= */ "green"
+  )
   const noTableHtml = buildVotersTableHtml(noVoters, /* tableColor= */ "red")
   const safeCreator = qEscapeHtml(creator)
   const detailsHtml = `
-    <div class="poll-details-container" id="${qEscapeAttr(creator)}-poll-details">
+    <div class="poll-details-container" id="${qEscapeAttr(
+      creator
+    )}-poll-details">
       <h1 style ="color:rgb(123, 123, 85); text-align: center; font-size: 2.0rem">${safeCreator}'s</h1><h3 style="color: white; text-align: center; font-size: 1.8rem"> Support Poll Result Details</h3>
       <h4 style="color: green; text-align: center;">Yes Vote Details</h4>
       ${yesTableHtml}
@@ -1544,7 +1945,7 @@ const processPollData= async (pollData, minterGroupMembers, minterAdmins, creato
     totalYesWeight: totalMinterAndAdminYesWeight,
     totalNoWeight: totalMinterAndAdminNoWeight,
     detailsHtml,
-    userVote
+    userVote,
   }
 }
 
@@ -1578,9 +1979,9 @@ const buildVotersTableHtml = (voters, tableColor) => {
   }
 
   // tableColor is used for the <thead>, bodyBackground for the <tbody>
-  const minterColor = 'rgb(98, 122, 167)'
-  const adminColor = 'rgb(44, 209, 151)'
-  const userColor = 'rgb(102, 102, 102)'
+  const minterColor = "rgb(98, 122, 167)"
+  const adminColor = "rgb(44, 209, 151)"
+  const userColor = "rgb(102, 102, 102)"
   return `
     <table style="
       width: 100%;
@@ -1601,22 +2002,41 @@ const buildVotersTableHtml = (voters, tableColor) => {
       <!-- Tbody with extremely dark green or red -->
       <tbody style="background-color: ${bodyBackground}; color: #c6c6c6;">
         ${voters
-          .map(v => {
-            const userType = v.isAdmin ? "Admin" : v.isMinter ? "Minter" : "User"
+          .map((v) => {
+            const userType = v.isAdmin
+              ? "Admin"
+              : v.isMinter
+              ? "Minter"
+              : "User"
             const pollName = v.pollName
-            const displayName =
-              v.voterName
-                ? v.voterName
-                : v.voterAddress
+            const displayName = v.voterName ? v.voterName : v.voterAddress
             const safeDisplayName = qEscapeHtml(displayName)
             return `
               <tr style="font-size: 1.2rem; border-width: 0.1rem; border-style: dotted; border-color: lightgrey; font-weight: bold;">
                 <td style="padding: 1.2rem; border-width: 0.1rem; border-style: dotted; border-color: lightgrey; text-align: center; 
-                color:${userType === 'Admin' ? adminColor : v.isMinter? minterColor : userColor };">${safeDisplayName}</td>
+                color:${
+                  userType === "Admin"
+                    ? adminColor
+                    : v.isMinter
+                    ? minterColor
+                    : userColor
+                };">${safeDisplayName}</td>
                 <td style="padding: 1.2rem; border-width: 0.1rem; border-style: dotted; border-color: lightgrey; text-align: center; 
-                color:${userType === 'Admin' ? adminColor : v.isMinter? minterColor : userColor };">${userType}</td>
+                color:${
+                  userType === "Admin"
+                    ? adminColor
+                    : v.isMinter
+                    ? minterColor
+                    : userColor
+                };">${userType}</td>
                 <td style="padding: 1.2rem; border-width: 0.1rem; border-style: dotted; border-color: lightgrey; text-align: center; 
-                color:${userType === 'Admin' ? adminColor : v.isMinter? minterColor : userColor };">${v.blocksMinted}</td>
+                color:${
+                  userType === "Admin"
+                    ? adminColor
+                    : v.isMinter
+                    ? minterColor
+                    : userColor
+                };">${v.blocksMinted}</td>
               </tr>
             `
           })
@@ -1626,23 +2046,22 @@ const buildVotersTableHtml = (voters, tableColor) => {
   `
 }
 
-
-// Post a comment on a card. --------------------------------- 
+// Post a comment on a card. ---------------------------------
 const postComment = async (cardIdentifier) => {
   const commentInput = document.getElementById(`new-comment-${cardIdentifier}`)
   const commentText = commentInput.value.trim()
 
   if (!commentText) {
-    alert('Comment cannot be empty!')
+    alert("Comment cannot be empty!")
     return
   }
 
   try {
-    //Ensure the user is not on the blockList prior to allowing them to publish a comment. 
+    //Ensure the user is not on the blockList prior to allowing them to publish a comment.
     const blockedNames = await fetchBlockList()
-    
+
     if (blockedNames.includes(userState.accountName)) {
-      alert('You are on the block list and cannot publish comments.')
+      alert("You are on the block list and cannot publish comments.")
       return
     }
     const commentData = {
@@ -1653,42 +2072,104 @@ const postComment = async (cardIdentifier) => {
     const uniqueCommentIdentifier = `comment-${cardIdentifier}-${await uid()}`
     let base64CommentData = await objectToBase64(commentData)
     if (!base64CommentData) {
-      console.log('objectToBase64 failed, fallback to btoa()')
+      console.log("objectToBase64 failed, fallback to btoa()")
       base64CommentData = btoa(JSON.stringify(commentData))
     }
 
     await qortalRequest({
-      action: 'PUBLISH_QDN_RESOURCE',
+      action: "PUBLISH_QDN_RESOURCE",
       name: userState.accountName,
-      service: 'BLOG_POST',
+      service: "BLOG_POST",
       identifier: uniqueCommentIdentifier,
       data64: base64CommentData,
     })
 
-    commentInput.value = ''
-
+    rememberOptimisticMinterBoardComment(
+      cardIdentifier,
+      userState.accountName,
+      uniqueCommentIdentifier,
+      commentData,
+      commentData.timestamp
+    )
+    commentInput.value = ""
+    updateDisplayedCommentCount(cardIdentifier, 1)
+    const commentsSection = document.getElementById(
+      `comments-section-${cardIdentifier}`
+    )
+    if (commentsSection && commentsSection.style.display === "block") {
+      await displayComments(cardIdentifier)
+      const commentButton = document.getElementById(
+        `comment-button-${cardIdentifier}`
+      )
+      if (commentButton) {
+        commentButton.textContent = "HIDE COMMENTS"
+      }
+    }
   } catch (error) {
-    console.error('Error posting comment:', error)
-    alert('Failed to post comment. Error: ' + error)
+    console.error("Error posting comment:", error)
+    alert("Failed to post comment. Error: " + error)
   }
 }
 
-
+const updateDisplayedCommentCount = (cardIdentifier, delta = 0) => {
+  const commentButton = document.getElementById(
+    `comment-button-${cardIdentifier}`
+  )
+  const currentCount = Number(
+    commentButton?.dataset?.commentCount ||
+      commentCountCache.get(cardIdentifier) ||
+      0
+  )
+  const nextCount = Math.max(0, currentCount + delta)
+  commentCountCache.set(cardIdentifier, nextCount)
+  if (commentButton) {
+    commentButton.dataset.commentCount = String(nextCount)
+    if (
+      commentButton.textContent !== "HIDE COMMENTS" &&
+      commentButton.textContent !== "LOADING..."
+    ) {
+      commentButton.textContent = `COMMENTS (${nextCount})`
+    }
+  }
+}
 //Fetch the comments for a card with passed card identifier ----------------------------
 const fetchCommentsForCard = async (cardIdentifier) => {
   try {
-    const response = await searchSimple('BLOG_POST',`comment-${cardIdentifier}`, '', 0, 0, '', 'false')
-    return response
+    const response = await searchSimple(
+      "BLOG_POST",
+      `comment-${cardIdentifier}`,
+      "",
+      0,
+      0,
+      "",
+      "false"
+    )
+    const fetchedComments = Array.isArray(response) ? response : []
+    const existingResourcesByIdentity = new Map(
+      fetchedComments.map((comment) => [
+        getBoardResourceIdentityKey(comment),
+        comment,
+      ])
+    )
+    const optimisticComments = getOptimisticMinterBoardComments(
+      cardIdentifier,
+      existingResourcesByIdentity
+    )
+    return [...optimisticComments, ...fetchedComments].sort(
+      (a, b) => getBoardResourceTimestamp(a) - getBoardResourceTimestamp(b)
+    )
   } catch (error) {
     console.error(`Error fetching comments for ${cardIdentifier}:`, error)
-    return []
+    return getOptimisticMinterBoardComments(cardIdentifier)
   }
 }
 
 const displayComments = async (cardIdentifier) => {
   try {
     const comments = await fetchCommentsForCard(cardIdentifier)
-    const commentsContainer = document.getElementById(`comments-container-${cardIdentifier}`)
+    const commentsContainer = document.getElementById(
+      `comments-container-${cardIdentifier}`
+    )
     commentsContainer.innerHTML = ""
     const blockedNames = await fetchBlockList()
     console.log("Loaded block list:", blockedNames)
@@ -1697,12 +2178,7 @@ const displayComments = async (cardIdentifier) => {
     const commentHTMLArray = await Promise.all(
       comments.map(async (comment) => {
         try {
-          const commentDataResponse = await qortalRequest({
-            action: "FETCH_QDN_RESOURCE",
-            name: comment.name,
-            service: "BLOG_POST",
-            identifier: comment.identifier
-          })
+          const commentDataResponse = await fetchMinterBoardCommentData(comment)
 
           if (!commentDataResponse || !commentDataResponse.creator) {
             return null
@@ -1719,20 +2195,34 @@ const displayComments = async (cardIdentifier) => {
 
           if (voterInfo) {
             if (voterInfo.voterType === "Admin") {
-            
-              commentColor = voterInfo.vote === "yes" ? "rgba(21, 150, 21, 0.6)" : "rgba(212, 37, 64, 0.6)" // Light green for yes, light red for no
-              const badgeColor = voterInfo.vote === "yes" ? "rgb(206, 195, 77)" : "rgb(121, 119, 90)"
+              commentColor =
+                voterInfo.vote === "yes"
+                  ? "rgba(21, 150, 21, 0.6)"
+                  : "rgba(212, 37, 64, 0.6)" // Light green for yes, light red for no
+              const badgeColor =
+                voterInfo.vote === "yes"
+                  ? "rgb(206, 195, 77)"
+                  : "rgb(121, 119, 90)"
               adminBadge = `<span style="color: ${badgeColor}; font-weight: bold; margin-left: 0.5em;">(Admin)</span>`
             } else {
-
-              commentColor = voterInfo.vote === "yes" ? "rgba(0, 100, 0, 0.3)" : "rgba(100, 0, 0, 0.3)" // Darker green for yes, darker red for no
+              commentColor =
+                voterInfo.vote === "yes"
+                  ? "rgba(0, 100, 0, 0.3)"
+                  : "rgba(100, 0, 0, 0.3)" // Darker green for yes, darker red for no
             }
           }
-          const timestamp = new Date(commentDataResponse.timestamp).toLocaleString()
+          const timestamp = new Date(
+            commentDataResponse.timestamp
+          ).toLocaleString()
           // Kakashi Note: Comment author, body, and timestamp are escaped before insertion to keep card discussions render-safe.
           const safeCommenterName = qEscapeHtml(commenterName)
-          const safeCommentContent = qEscapeHtml(commentDataResponse.content).replace(/\n/g, '<br>')
+          const safeCommentContent = qEscapeHtml(
+            commentDataResponse.content
+          ).replace(/\n/g, "<br>")
           const safeTimestamp = qEscapeHtml(timestamp)
+          const optimisticNotice = commentDataResponse._optimisticPending
+            ? `<p class="board-progress-muted" style="color: #ffd27d;"><i>Published locally. Waiting for QDN indexing.</i></p>`
+            : ""
           return `
             <div class="comment" style="border: 1px solid gray; margin: 1vh 0; padding: 1vh; background: ${commentColor};">
               <p>
@@ -1741,6 +2231,7 @@ const displayComments = async (cardIdentifier) => {
               </p>
               <p>${safeCommentContent}</p>
               <p><i>${safeTimestamp}</i></p>
+              ${optimisticNotice}
             </div>
           `
         } catch (err) {
@@ -1750,43 +2241,46 @@ const displayComments = async (cardIdentifier) => {
       })
     )
     commentHTMLArray
-      .filter(html => html !== null)
-      .forEach(commentHTML => {
-        commentsContainer.insertAdjacentHTML('beforeend', commentHTML)
+      .filter((html) => html !== null)
+      .forEach((commentHTML) => {
+        commentsContainer.insertAdjacentHTML("beforeend", commentHTML)
       })
-
   } catch (err) {
     console.error(`Error displaying comments for ${cardIdentifier}:`, err)
   }
 }
 
-
 // Toggle comments from being shown or not, with passed cardIdentifier for comments being toggled --------------------
 const toggleComments = async (cardIdentifier) => {
-  const commentsSection = document.getElementById(`comments-section-${cardIdentifier}`)
-  const commentButton = document.getElementById(`comment-button-${cardIdentifier}`)
+  const commentsSection = document.getElementById(
+    `comments-section-${cardIdentifier}`
+  )
+  const commentButton = document.getElementById(
+    `comment-button-${cardIdentifier}`
+  )
 
   if (!commentsSection || !commentButton) return
-  
+
   const count = commentButton.dataset.commentCount
-  const isHidden = (commentsSection.style.display === 'none' || !commentsSection.style.display)
+  const isHidden =
+    commentsSection.style.display === "none" || !commentsSection.style.display
 
   if (isHidden) {
     // Show comments
     commentButton.textContent = "LOADING..."
     await displayComments(cardIdentifier)
-    commentsSection.style.display = 'block'
+    commentsSection.style.display = "block"
     // Change the button text to 'HIDE COMMENTS'
-    commentButton.textContent = 'HIDE COMMENTS'
+    commentButton.textContent = "HIDE COMMENTS"
   } else {
     // Hide comments
-    commentsSection.style.display = 'none'
+    commentsSection.style.display = "none"
     commentButton.textContent = `COMMENTS (${count})`
   }
 }
 
 const commentCountCache = new Map()
-const countCommentsCached= async (cardIdentifier) => {
+const countCommentsCached = async (cardIdentifier) => {
   if (commentCountCache.has(cardIdentifier)) {
     return commentCountCache.get(cardIdentifier)
   }
@@ -1797,20 +2291,40 @@ const countCommentsCached= async (cardIdentifier) => {
 
 const countComments = async (cardIdentifier) => {
   try {
-    const response = await searchSimple('BLOG_POST', `comment-${cardIdentifier}`, '', 0, 0, '', 'false')
-    return Array.isArray(response) ? response.length : 0
+    const response = await searchSimple(
+      "BLOG_POST",
+      `comment-${cardIdentifier}`,
+      "",
+      0,
+      0,
+      "",
+      "false"
+    )
+    const fetchedComments = Array.isArray(response) ? response : []
+    const existingResourcesByIdentity = new Map(
+      fetchedComments.map((comment) => [
+        getBoardResourceIdentityKey(comment),
+        comment,
+      ])
+    )
+    return (
+      fetchedComments.length +
+      getOptimisticMinterBoardComments(
+        cardIdentifier,
+        existingResourcesByIdentity
+      ).length
+    )
   } catch (error) {
     console.error(`Error fetching comment count for ${cardIdentifier}:`, error)
-    return 0
+    return getOptimisticMinterBoardComments(cardIdentifier).length
   }
 }
 
-
-const createModal = (modalType='') => {
+const createModal = (modalType = "") => {
   if (document.getElementById(`${modalType}-modal`)) {
     return
   }
-  const isIframe = (modalType === 'links')
+  const isIframe = modalType === "links"
 
   const modalHTML = `
     <div id="${modalType}-modal"
@@ -1856,10 +2370,10 @@ const createModal = (modalType='') => {
       </div>
     </div>
   `
-  document.body.insertAdjacentHTML('beforeend', modalHTML)
+  document.body.insertAdjacentHTML("beforeend", modalHTML)
   const modal = document.getElementById(`${modalType}-modal`)
 
-  window.addEventListener('click', (event) => {
+  window.addEventListener("click", (event) => {
     if (event.target === modal) {
       closeModal(modalType)
     }
@@ -1868,52 +2382,52 @@ const createModal = (modalType='') => {
 
 const openLinksModal = async (link) => {
   const processedLink = await processLink(link)
-  const modal = document.getElementById('links-modal')
-  const modalContent = document.getElementById('links-modalContent')
-  modalContent.src = qSanitizeUrl(processedLink, '')
-  modal.style.display = 'block'
+  const modal = document.getElementById("links-modal")
+  const modalContent = document.getElementById("links-modalContent")
+  modalContent.src = qSanitizeUrl(processedLink, "")
+  modal.style.display = "block"
 }
 
-const closeModal = async (modalType='links') => {
+const closeModal = async (modalType = "links") => {
   const modal = document.getElementById(`${modalType}-modal`)
   const modalContent = document.getElementById(`${modalType}-modalContent`)
   if (modal) {
-    modal.style.display = 'none'
+    modal.style.display = "none"
   }
   if (modalContent) {
-    modalContent.src = ''
+    modalContent.src = ""
   }
 }
 
 const processLink = async (link) => {
-  if (link.startsWith('qortal://')) {
+  if (link.startsWith("qortal://")) {
     const match = link.match(/^qortal:\/\/([^/]+)(\/.*)?$/)
     if (match) {
       const firstParam = match[1].toUpperCase()
       const remainingPath = match[2] || ""
-      const themeColor = window._qdnTheme || 'default'
+      const themeColor = window._qdnTheme || "default"
 
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise((resolve) => setTimeout(resolve, 10))
 
       return `/render/${firstParam}${remainingPath}?theme=${themeColor}`
     }
   }
-  return qSanitizeUrl(link, '')
+  return qSanitizeUrl(link, "")
 }
 
-const togglePollDetails = (cardIdentifier) => {  
+const togglePollDetails = (cardIdentifier) => {
   const detailsDiv = document.getElementById(`poll-details-${cardIdentifier}`)
   const modal = document.getElementById(`poll-details-modal`)
   const modalContent = document.getElementById(`poll-details-modalContent`)
-  
+
   if (!detailsDiv || !modal || !modalContent) return
 
   modalContent.innerHTML = detailsDiv.innerHTML
-  modal.style.display = 'block'
+  modal.style.display = "block"
 
   window.onclick = (event) => {
     if (event.target === modal) {
-      modal.style.display = 'none'
+      modal.style.display = "none"
     }
   }
 }
@@ -1925,14 +2439,14 @@ const generateDarkPastelBackgroundBy = (name) => {
     hash |= 0
   }
   const safeHash = Math.abs(hash)
-  const hueSteps = 69.69 
-  const hueIndex = safeHash % hueSteps 
+  const hueSteps = 69.69
+  const hueIndex = safeHash % hueSteps
   const hueRange = 288
-  const hue = 140 + (hueIndex * (hueRange / hueSteps))
+  const hue = 140 + hueIndex * (hueRange / hueSteps)
 
   const satSteps = 13.69
   const satIndex = safeHash % satSteps
-  const saturation = 18 + (satIndex * 1.333)
+  const saturation = 18 + satIndex * 1.333
 
   const lightSteps = 3.69
   const lightIndex = safeHash % lightSteps
@@ -1947,47 +2461,60 @@ const handleInviteMinter = async (minterName) => {
     const blockHeight = blockInfo.height
     const minterAccountInfo = await getNameInfoCached(minterName)
     const minterAddress = await minterAccountInfo.owner
-    let adminPublicKey 
+    let adminPublicKey
     let txGroupId
-    if (blockHeight >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT){
-      if (userState.isMinterAdmin){
+    if (blockHeight >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT) {
+      if (userState.isMinterAdmin) {
         adminPublicKey = await getPublicKeyByName(userState.accountName)
         txGroupId = 694
-      }else{
+      } else {
         console.warn(`user is not a minter admin, cannot create invite!`)
         return
       }
-    }else {
+    } else {
       adminPublicKey = await getPublicKeyByName(userState.accountName)
       txGroupId = 0
     }
     const fee = 0.01
     const timeToLive = 864000
 
-    console.log(`about to attempt group invite, minterAddress: ${minterAddress}, adminPublicKey: ${adminPublicKey}`)
-    const inviteTransaction = await createGroupInviteTransaction(minterAddress, adminPublicKey, 694, minterAddress, timeToLive, txGroupId, fee)
-    
+    console.log(
+      `about to attempt group invite, minterAddress: ${minterAddress}, adminPublicKey: ${adminPublicKey}`
+    )
+    const inviteTransaction = await createGroupInviteTransaction(
+      minterAddress,
+      adminPublicKey,
+      694,
+      minterAddress,
+      timeToLive,
+      txGroupId,
+      fee
+    )
+
     const signedTransaction = await qortalRequest({
-        action: "SIGN_TRANSACTION",
-        unsignedBytes: inviteTransaction
+      action: "SIGN_TRANSACTION",
+      unsignedBytes: inviteTransaction,
     })
 
-    console.warn(`signed transaction`,signedTransaction)
+    console.warn(`signed transaction`, signedTransaction)
     const processResponse = await processTransaction(signedTransaction)
 
-    if (typeof processResponse === 'object') {
+    if (typeof processResponse === "object") {
       // The successful object might have a "signature" or "type" or "approvalStatus"
       console.log("Invite transaction success object:", processResponse)
-      alert(`${minterName} has been successfully invited! Wait for confirmation...Transaction Response: ${JSON.stringify(processResponse)}`)
+      alert(
+        `${minterName} has been successfully invited! Wait for confirmation...Transaction Response: ${JSON.stringify(
+          processResponse
+        )}`
+      )
     } else {
       // fallback string or something
       console.log("Invite transaction raw text response:", processResponse)
       alert(`Invite transaction response: ${JSON.stringify(processResponse)}`)
     }
-
   } catch (error) {
-      console.error("Error inviting minter:", error)
-      alert("Error inviting minter. Please try again.")
+    console.error("Error inviting minter:", error)
+    alert("Error inviting minter. Please try again.")
   }
 }
 
@@ -2009,19 +2536,26 @@ const createInviteButtonHtml = (creator, cardIdentifier) => {
 
 const handleInviteMinterFromButton = (buttonEl) => {
   if (!buttonEl) return
-  const minterName = buttonEl.dataset?.minterName || ''
+  const minterName = buttonEl.dataset?.minterName || ""
   handleInviteMinter(minterName)
 }
 
 const featureTriggerCheck = async () => {
   const latestBlockInfo = await getLatestBlockInfo()
-  const isBlockPassed = latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
+  const isBlockPassed =
+    latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
   if (isBlockPassed) {
-    console.warn(`featureTrigger check (verifyFeatureTrigger) determined block has PASSED:`, isBlockPassed)
+    console.warn(
+      `featureTrigger check (verifyFeatureTrigger) determined block has PASSED:`,
+      isBlockPassed
+    )
     featureTriggerPassed = true
     return true
   } else {
-    console.warn(`featureTrigger check (verifyFeatureTrigger) determined block has NOT PASSED:`, isBlockPassed)
+    console.warn(
+      `featureTrigger check (verifyFeatureTrigger) determined block has NOT PASSED:`,
+      isBlockPassed
+    )
     featureTriggerPassed = false
     return false
   }
@@ -2030,24 +2564,28 @@ const featureTriggerCheck = async () => {
 const INVITE_CONTEXT_CACHE_TTL_MS = 15000
 let inviteContextCache = {
   timestamp: 0,
-  data: null
+  data: null,
 }
 
 const getInviteContextCached = async (force = false) => {
   const now = Date.now()
-  const isStale = (now - inviteContextCache.timestamp) > INVITE_CONTEXT_CACHE_TTL_MS
+  const isStale =
+    now - inviteContextCache.timestamp > INVITE_CONTEXT_CACHE_TTL_MS
 
   if (force || !inviteContextCache.data || isStale) {
-    const [{ finalKickTxs, finalBanTxs }, { finalInviteTxs, pendingInviteTxs }] = await Promise.all([
+    const [
+      { finalKickTxs, finalBanTxs },
+      { finalInviteTxs, pendingInviteTxs },
+    ] = await Promise.all([
       fetchAllKickBanTxData(),
-      fetchAllInviteTransactions()
+      fetchAllInviteTransactions(),
     ])
 
     inviteContextCache.data = {
       finalKickTxs,
       finalBanTxs,
       finalInviteTxs,
-      pendingInviteTxs
+      pendingInviteTxs,
     }
     inviteContextCache.timestamp = now
   }
@@ -2055,7 +2593,11 @@ const getInviteContextCached = async (force = false) => {
   return inviteContextCache.data
 }
 
-const checkAndDisplayInviteButton = async (adminYes, creator, cardIdentifier) => {
+const checkAndDisplayInviteButton = async (
+  adminYes,
+  creator,
+  cardIdentifier
+) => {
   const isSomeTypaAdmin = userState.isAdmin || userState.isMinterAdmin
   const isBlockPassed = await featureTriggerCheck()
   // const minterAdmins = await fetchMinterGroupAdmins()
@@ -2070,10 +2612,14 @@ const checkAndDisplayInviteButton = async (adminYes, creator, cardIdentifier) =>
 
   // if not enough adminYes votes, no invite button
   if (adminYes < minAdminCount) {
-    console.warn(`Admin votes not high enough (have=${adminYes}, need=${minAdminCount}). No button.`)
+    console.warn(
+      `Admin votes not high enough (have=${adminYes}, need=${minAdminCount}). No button.`
+    )
     return null
   }
-  console.log(`passed initial button creation checks (adminYes >= ${minAdminCount})`)
+  console.log(
+    `passed initial button creation checks (adminYes >= ${minAdminCount})`
+  )
   // get user's address from 'creator' name
   const minterNameInfo = await getNameInfoCached(creator)
   if (!minterNameInfo || !minterNameInfo.owner) {
@@ -2082,40 +2628,63 @@ const checkAndDisplayInviteButton = async (adminYes, creator, cardIdentifier) =>
   }
   const minterAddress = minterNameInfo.owner
   // Use short-lived cached tx context to avoid re-querying the same large datasets for every card.
-  const { finalKickTxs, finalBanTxs, finalInviteTxs, pendingInviteTxs } = await getInviteContextCached()
+  const { finalKickTxs, finalBanTxs, finalInviteTxs, pendingInviteTxs } =
+    await getInviteContextCached()
   // check if there's a KICK or BAN for this user.
-  const priorKick = finalKickTxs.some(tx => tx.member === minterAddress)
-  const priorBan = finalBanTxs.some(tx => tx.offender === minterAddress)
-  const existingInvite = finalInviteTxs.some(tx => tx.invitee === minterAddress)
-  const pendingInvite = pendingInviteTxs.some(tx => tx.invitee === minterAddress)
-  const priorBanOrKick = (priorBan || priorKick)
-  console.warn(`PriorBanOrKick determination for ${minterAddress}:`, priorBanOrKick)
+  const priorKick = finalKickTxs.some((tx) => tx.member === minterAddress)
+  const priorBan = finalBanTxs.some((tx) => tx.offender === minterAddress)
+  const existingInvite = finalInviteTxs.some(
+    (tx) => tx.invitee === minterAddress
+  )
+  const pendingInvite = pendingInviteTxs.some(
+    (tx) => tx.invitee === minterAddress
+  )
+  const priorBanOrKick = priorBan || priorKick
+  console.warn(
+    `PriorBanOrKick determination for ${minterAddress}:`,
+    priorBanOrKick
+  )
 
   // build the normal invite button & groupApprovalHtml
   let inviteButtonHtml = ""
-  if (existingInvite || pendingInvite){
-    console.warn(`There is an EXISTING or PENDING INVITE for this user! No invite button being created... existing: (${existingInvite}, pending: ${pendingInvite})`)
-    inviteButtonHtml = ''
+  if (existingInvite || pendingInvite) {
+    console.warn(
+      `There is an EXISTING or PENDING INVITE for this user! No invite button being created... existing: (${existingInvite}, pending: ${pendingInvite})`
+    )
+    inviteButtonHtml = ""
   } else {
-    inviteButtonHtml = isSomeTypaAdmin ? createInviteButtonHtml(creator, cardIdentifier) : ""
+    inviteButtonHtml = isSomeTypaAdmin
+      ? createInviteButtonHtml(creator, cardIdentifier)
+      : ""
   }
-  
-  const groupApprovalHtml = await checkGroupApprovalAndCreateButton(minterAddress, cardIdentifier, "GROUP_INVITE")
+
+  const groupApprovalHtml = await checkGroupApprovalAndCreateButton(
+    minterAddress,
+    cardIdentifier,
+    "GROUP_INVITE"
+  )
 
   // if user had no prior KICK/BAN
   if (!priorBanOrKick) {
-    console.log(`No prior kick/ban found, creating invite (or approve) button...`)
-    console.warn(`Existing Numbers - adminYes/minAdminCount: ${adminYes}/${minAdminCount}`)
+    console.log(
+      `No prior kick/ban found, creating invite (or approve) button...`
+    )
+    console.warn(
+      `Existing Numbers - adminYes/minAdminCount: ${adminYes}/${minAdminCount}`
+    )
 
     // if there's already a pending GROUP_INVITE, return that approval button
     if (groupApprovalHtml) {
-      console.warn(`groupApprovalCheck found existing groupApproval, returning approval button instead of invite button...`)
+      console.warn(
+        `groupApprovalCheck found existing groupApproval, returning approval button instead of invite button...`
+      )
       return groupApprovalHtml
     }
 
-    console.warn(`No pending approvals or prior kick/ban found, returning invite button...`)
+    console.warn(
+      `No pending approvals or prior kick/ban found, returning invite button...`
+    )
     return inviteButtonHtml
-
   } else {
     // priorBanOrKick is true => show both
     console.warn(`Prior kick/ban found! Including BOTH buttons...`)
@@ -2123,13 +2692,24 @@ const checkAndDisplayInviteButton = async (adminYes, creator, cardIdentifier) =>
   }
 }
 
-const findPendingTxForAddress = async (address, txType, limit = 0, offset = 0) => {
+const findPendingTxForAddress = async (
+  address,
+  txType,
+  limit = 0,
+  offset = 0
+) => {
   const pendingTxs = await searchPendingTransactions(limit, offset, false)
   let relevantTypes
   if (txType) {
     relevantTypes = new Set([txType])
   } else {
-    relevantTypes = new Set(["GROUP_INVITE", "GROUP_BAN", "GROUP_KICK", "ADD_GROUP_ADMIN", "REMOVE_GROUP_ADMIN"])
+    relevantTypes = new Set([
+      "GROUP_INVITE",
+      "GROUP_BAN",
+      "GROUP_KICK",
+      "ADD_GROUP_ADMIN",
+      "REMOVE_GROUP_ADMIN",
+    ])
   }
 
   // Filter pending TX for relevant types
@@ -2151,7 +2731,7 @@ const findPendingTxForAddress = async (address, txType, limit = 0, offset = 0) =
         return false
     }
   })
-  console.warn(`matchedTxs:`,matchedTxs)
+  console.warn(`matchedTxs:`, matchedTxs)
   //Sort oldest→newest by timestamp, so matchedTxs[0] is the oldest
   matchedTxs.sort((a, b) => a.timestamp - b.timestamp)
   return matchedTxs // Array of matching pending transactions
@@ -2160,24 +2740,25 @@ const findPendingTxForAddress = async (address, txType, limit = 0, offset = 0) =
 const APPROVAL_TX_CACHE_TTL_MS = 15000
 let approvalTxSearchCache = {
   timestamp: 0,
-  data: null
+  data: null,
 }
 const pendingTxByAddressTypeCache = new Map()
 
 const getGroupApprovalTxsCached = async (force = false) => {
   const now = Date.now()
-  const isStale = (now - approvalTxSearchCache.timestamp) > APPROVAL_TX_CACHE_TTL_MS
+  const isStale =
+    now - approvalTxSearchCache.timestamp > APPROVAL_TX_CACHE_TTL_MS
 
   if (force || !approvalTxSearchCache.data || isStale) {
     approvalTxSearchCache.data = await searchTransactions({
-      txTypes: ['GROUP_APPROVAL'],
-      confirmationStatus: 'CONFIRMED',
+      txTypes: ["GROUP_APPROVAL"],
+      confirmationStatus: "CONFIRMED",
       limit: 0,
       reverse: false,
       offset: 0,
       startBlock: 1990000,
       blockLimit: 0,
-      txGroupId: 0
+      txGroupId: 0,
     })
     approvalTxSearchCache.timestamp = now
   }
@@ -2185,14 +2766,25 @@ const getGroupApprovalTxsCached = async (force = false) => {
   return approvalTxSearchCache.data
 }
 
-const getPendingTxForAddressCached = async (address, transactionType, limit = 0, offset = 0, force = false) => {
+const getPendingTxForAddressCached = async (
+  address,
+  transactionType,
+  limit = 0,
+  offset = 0,
+  force = false
+) => {
   const key = `${transactionType}::${address}`
   const now = Date.now()
   const cached = pendingTxByAddressTypeCache.get(key)
-  const isStale = !cached || (now - cached.timestamp) > APPROVAL_TX_CACHE_TTL_MS
+  const isStale = !cached || now - cached.timestamp > APPROVAL_TX_CACHE_TTL_MS
 
   if (force || isStale) {
-    const data = await findPendingTxForAddress(address, transactionType, limit, offset)
+    const data = await findPendingTxForAddress(
+      address,
+      transactionType,
+      limit,
+      offset
+    )
     pendingTxByAddressTypeCache.set(key, { timestamp: now, data })
     return data
   }
@@ -2200,21 +2792,34 @@ const getPendingTxForAddressCached = async (address, transactionType, limit = 0,
   return cached.data
 }
 
-const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transactionType) => {
+const checkGroupApprovalAndCreateButton = async (
+  address,
+  cardIdentifier,
+  transactionType
+) => {
   // We are going to be verifying that the address isn't already a minter, before showing GROUP_APPROVAL buttons potentially...
   if (transactionType === "GROUP_INVITE") {
-    console.log(`This is a GROUP_INVITE check for group approval... Checking that user isn't already a minter...`)
+    console.log(
+      `This is a GROUP_INVITE check for group approval... Checking that user isn't already a minter...`
+    )
     // const minterMembers = await fetchMinterGroupMembers()
     const minterMembers = cachedMinterGroup
-    const minterGroupAddresses = minterMembers.map(m => m.member)
+    const minterGroupAddresses = minterMembers.map((m) => m.member)
     if (minterGroupAddresses.includes(address)) {
-      console.warn(`User is already a minter, will not be creating group_approval buttons`)
+      console.warn(
+        `User is already a minter, will not be creating group_approval buttons`
+      )
       return null
     }
   }
 
   const approvalSearchResults = await getGroupApprovalTxsCached()
-  const pendingTxs = await getPendingTxForAddressCached(address, transactionType, 0, 0)
+  const pendingTxs = await getPendingTxForAddressCached(
+    address,
+    transactionType,
+    0,
+    0
+  )
   let isSomeTypaAdmin = userState.isAdmin || userState.isMinterAdmin
   // If no pending transaction found, return null
   if (!pendingTxs || pendingTxs.length === 0) {
@@ -2260,7 +2865,7 @@ const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transa
     `
     return approvalButtonHtml
   }
-  
+
   if (transactionType === "GROUP_KICK" && isSomeTypaAdmin) {
     const approvalButtonHtml = `
       <div style="display: flex; flex-direction: column; margin-top: 1em;">
@@ -2290,7 +2895,7 @@ const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transa
     `
     return approvalButtonHtml
   }
-  
+
   if (transactionType === "GROUP_BAN" && isSomeTypaAdmin) {
     const approvalButtonHtml = `
       <div style="display: flex; flex-direction: column; margin-top: 1em;">
@@ -2320,7 +2925,7 @@ const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transa
     `
     return approvalButtonHtml
   }
-  
+
   if (transactionType === "ADD_GROUP_ADMIN" && isSomeTypaAdmin) {
     const approvalButtonHtml = `
       <div style="display: flex; flex-direction: column; margin-top: 1em;">
@@ -2350,7 +2955,7 @@ const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transa
     `
     return approvalButtonHtml
   }
-  
+
   if (transactionType === "REMOVE_GROUP_ADMIN" && isSomeTypaAdmin) {
     const approvalButtonHtml = `
       <div style="display: flex; flex-direction: column; margin-top: 1em;">
@@ -2380,7 +2985,6 @@ const checkGroupApprovalAndCreateButton = async (address, cardIdentifier, transa
     `
     return approvalButtonHtml
   }
-  
 }
 
 const buildApprovalTableHtml = async (approvalTxs, getNameFunc) => {
@@ -2393,7 +2997,10 @@ const buildApprovalTableHtml = async (approvalTxs, getNameFunc) => {
     }
   }
   // Turn the map into an array for iteration
-  const approvalArray = Array.from(approvalMap, ([adminAddr, tx]) => ({ adminAddr, tx }))
+  const approvalArray = Array.from(approvalMap, ([adminAddr, tx]) => ({
+    adminAddr,
+    tx,
+  }))
   // Build table rows asynchronously, since we need getNameFromAddress
   const tableRows = await Promise.all(
     approvalArray.map(async ({ adminAddr, tx }) => {
@@ -2419,7 +3026,7 @@ const buildApprovalTableHtml = async (approvalTxs, getNameFunc) => {
     })
   )
   // The total unique approvals = number of entries in approvalMap
-  const uniqueApprovalCount = approvalMap.size;
+  const uniqueApprovalCount = approvalMap.size
   // Wrap the table in a container with horizontal scroll:
   //    1) max-width: 100% makes it fit the parent (card) width
   //    2) overflow-x: auto allows scrolling if the table is too wide
@@ -2441,49 +3048,58 @@ const buildApprovalTableHtml = async (approvalTxs, getNameFunc) => {
   // Return both the container-wrapped table and the count of unique approvals
   return {
     tableHtml: containerHtml,
-    uniqueApprovalCount
+    uniqueApprovalCount,
   }
 }
 
-
 const handleGroupApproval = async (pendingSignature) => {
-  try{
+  try {
     if (!userState.isMinterAdmin) {
       console.warn(`non-admin attempting to sign approval!`)
       return
     }
     const fee = 0.01
-    const adminPublicKey = await getPublicKeyFromAddress(userState.accountAddress)
+    const adminPublicKey = await getPublicKeyFromAddress(
+      userState.accountAddress
+    )
     const txGroupId = 0
-    const rawGroupApprovalTransaction = await createGroupApprovalTransaction(adminPublicKey, pendingSignature, txGroupId, fee)
+    const rawGroupApprovalTransaction = await createGroupApprovalTransaction(
+      adminPublicKey,
+      pendingSignature,
+      txGroupId,
+      fee
+    )
     const signedGroupApprovalTransaction = await qortalRequest({
       action: "SIGN_TRANSACTION",
-      unsignedBytes: rawGroupApprovalTransaction
+      unsignedBytes: rawGroupApprovalTransaction,
     })
 
     let txToProcess = signedGroupApprovalTransaction
     const processGroupApprovalTx = await processTransaction(txToProcess)
 
     if (processGroupApprovalTx) {
-      alert(`transaction processed, please wait for CONFIRMATION: ${JSON.stringify(processGroupApprovalTx)}`)
+      alert(
+        `transaction processed, please wait for CONFIRMATION: ${JSON.stringify(
+          processGroupApprovalTx
+        )}`
+      )
     } else {
       alert(`creating tx failed for some reason`)
     }
-    
-  }catch(error){
+  } catch (error) {
     console.error(error)
     throw error
   }
 }
 
 const handleJoinGroup = async (minterAddress) => {
-  try{
+  try {
     if (userState.accountAddress === minterAddress) {
       console.log(`minter user found `)
 
       const qRequestAttempt = await qortalRequest({
         action: "JOIN_GROUP",
-        groupId: 694
+        groupId: 694,
       })
 
       if (qRequestAttempt) {
@@ -2492,43 +3108,151 @@ const handleJoinGroup = async (minterAddress) => {
 
       const joinerPublicKey = getPublicKeyFromAddress(minterAddress)
       const fee = 0.01
-      const joinGroupTransactionData = await createGroupJoinTransaction(minterAddress, joinerPublicKey, 694, 0, fee)
+      const joinGroupTransactionData = await createGroupJoinTransaction(
+        minterAddress,
+        joinerPublicKey,
+        694,
+        0,
+        fee
+      )
       const signedJoinGroupTransaction = await qortalRequest({
         action: "SIGN_TRANSACTION",
-        unsignedBytes: joinGroupTransactionData
+        unsignedBytes: joinGroupTransactionData,
       })
       let txToProcess = signedJoinGroupTransaction
       const processJoinGroupTransaction = await processTransaction(txToProcess)
 
-      if (processJoinGroupTransaction){
-        console.warn(`processed JOIN_GROUP tx`,processJoinGroupTransaction)
-        alert(`JOIN GROUP Transaction Processed Successfully, please WAIT FOR CONFIRMATION txData: ${JSON.stringify(processJoinGroupTransaction)}`)
+      if (processJoinGroupTransaction) {
+        console.warn(`processed JOIN_GROUP tx`, processJoinGroupTransaction)
+        alert(
+          `JOIN GROUP Transaction Processed Successfully, please WAIT FOR CONFIRMATION txData: ${JSON.stringify(
+            processJoinGroupTransaction
+          )}`
+        )
       }
-      
     } else {
       console.warn(`user is not the minter`)
-      return ''
+      return ""
     }
-  } catch(error){
+  } catch (error) {
     throw error
   }
 }
 
 const getMinterAvatar = async (minterName) => {
-  const avatarUrl = `/arbitrary/THUMBNAIL/${encodeURIComponent(minterName)}/qortal_avatar`
+  const placeholderAvatarHtml = `<span class="user-avatar-shell user-avatar-shell--placeholder" aria-hidden="true"></span>`
+
+  if (!minterName || minterName === "undefined" || minterName === "null") {
+    return placeholderAvatarHtml
+  }
+
+  const avatarUrl = `/arbitrary/THUMBNAIL/${encodeURIComponent(
+    minterName
+  )}/qortal_avatar`
   try {
-    const response = await fetch(avatarUrl, { method: 'HEAD' })
+    const response = await fetch(avatarUrl, { method: "HEAD" })
 
     if (response.ok) {
-      return `<img src="${avatarUrl}" alt="User Avatar" class="user-avatar" style="width: 50px; height: 50px; border-radius: 50%; align-self: center;">`
-    } else {
-      return ''
+      return `
+        <span class="user-avatar-shell user-avatar-shell--has-avatar" aria-hidden="true">
+          <img src="${avatarUrl}" alt="" class="user-avatar">
+        </span>
+      `
     }
 
+    return placeholderAvatarHtml
   } catch (error) {
-    console.error('Error checking avatar availability:', error)
-    return ''
+    console.error("Error checking avatar availability:", error)
+    return placeholderAvatarHtml
   }
+}
+
+function copyAddressFromIdentityBox(buttonEl) {
+  const address = buttonEl?.dataset?.copyAddress?.trim()
+  if (!address) {
+    return
+  }
+
+  const restoreTooltip = () => {
+    const originalTitle = buttonEl?.dataset?.originalTitle
+    if (originalTitle) {
+      buttonEl.setAttribute("title", originalTitle)
+    }
+    buttonEl?.classList?.remove("is-copied")
+  }
+
+  const markCopied = () => {
+    buttonEl?.classList?.add("is-copied")
+    buttonEl.setAttribute("title", "Copied address")
+    window.setTimeout(restoreTooltip, 1200)
+  }
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(address)
+      .then(markCopied)
+      .catch((error) => {
+        console.warn(
+          "Clipboard copy failed, falling back to legacy copy flow:",
+          error
+        )
+        legacyCopyAddress()
+      })
+    return
+  }
+
+  legacyCopyAddress()
+
+  function legacyCopyAddress() {
+    const tempTextArea = document.createElement("textarea")
+    tempTextArea.value = address
+    tempTextArea.setAttribute("readonly", "")
+    tempTextArea.style.position = "fixed"
+    tempTextArea.style.opacity = "0"
+    document.body.appendChild(tempTextArea)
+    tempTextArea.select()
+
+    try {
+      document.execCommand("copy")
+      markCopied()
+    } catch (error) {
+      console.warn("Legacy clipboard copy failed:", error)
+    } finally {
+      tempTextArea.remove()
+    }
+  }
+}
+
+function buildIdentityBoxHtml(label, displayName, address) {
+  const safeLabel = qEscapeHtml(label)
+  const safeDisplayName = qEscapeHtml(displayName || "Unknown")
+  const normalizedAddress = address || ""
+  const safeAddress = qEscapeAttr(normalizedAddress)
+  const titleText = normalizedAddress
+    ? `${label} address: ${normalizedAddress}`
+    : `${label} address unavailable`
+  const safeTitle = qEscapeAttr(titleText)
+  const safeAriaLabel = qEscapeAttr(
+    normalizedAddress
+      ? `${label} ${displayName || "Unknown"}. Click to copy the address.`
+      : `${label} ${displayName || "Unknown"}. Address unavailable.`
+  )
+  const emptyClass = normalizedAddress ? "" : " is-empty"
+
+  return `
+    <button
+      type="button"
+      class="card-identity-box${emptyClass}"
+      title="${safeTitle}"
+      aria-label="${safeAriaLabel}"
+      data-copy-address="${safeAddress}"
+      data-original-title="${safeTitle}"
+      onclick="copyAddressFromIdentityBox(this)"
+    >
+      <span class="card-identity-box-label">${safeLabel}</span>
+      <span class="card-identity-box-name">${safeDisplayName}</span>
+    </button>
+  `
 }
 
 const getNewestCommentTimestamp = async (cardIdentifier) => {
@@ -2536,70 +3260,141 @@ const getNewestCommentTimestamp = async (cardIdentifier) => {
     // fetchCommentsForCard returns resources each with at least 'created' or 'updated'
     const comments = await fetchCommentsForCard(cardIdentifier)
     if (!comments || comments.length === 0) {
-	      // No comments => fallback to 0 (or card's own date, if you like)
+      // No comments => fallback to 0 (or card's own date, if you like)
       return 0
     }
     // The newest can be determined by comparing 'updated' or 'created'
     const newestTimestamp = comments.reduce((acc, c) => {
       const cTime = c.updated || c.created || 0
-      return (cTime > acc) ? cTime : acc
+      return cTime > acc ? cTime : acc
     }, 0)
     return newestTimestamp
   } catch (err) {
-    console.error('Failed to get newest comment timestamp:', err)
+    console.error("Failed to get newest comment timestamp:", err)
     return 0
   }
 }
 
 // Create the overall Minter Card HTML -----------------------------------------------
-const createCardHTML = async (cardData, pollResults, cardIdentifier, commentCount, cardUpdatedTime, bgColor, address, isExistingMinter=false) => {
-  const { header, content, links, creator, creatorAddress, publishedBy, timestamp, poll } = cardData
-  const formattedDate = cardUpdatedTime ? new Date(cardUpdatedTime).toLocaleString() : new Date(timestamp).toLocaleString()
+const createCardHTML = async (
+  cardData,
+  pollResults,
+  cardIdentifier,
+  commentCount,
+  cardUpdatedTime,
+  bgColor,
+  address,
+  isExistingMinter = false
+) => {
+  const {
+    header,
+    content,
+    links,
+    creator,
+    creatorAddress,
+    publishedBy,
+    publishedByAddress,
+    timestamp,
+    poll,
+  } = cardData
+  const formattedDate = cardUpdatedTime
+    ? new Date(cardUpdatedTime).toLocaleString()
+    : new Date(timestamp).toLocaleString()
   const avatarHtml = await getMinterAvatar(creator)
   const linksArray = Array.isArray(links) ? links : []
-  const linksHTML = linksArray.map((link, index) => `
-    <button data-link="${qEscapeAttr(link)}" onclick="openLinksModalFromButton(this)">
+  const linksHTML = linksArray
+    .map(
+      (link, index) => `
+    <button data-link="${qEscapeAttr(
+      link
+    )}" onclick="openLinksModalFromButton(this)">
       ${qEscapeHtml(`Link ${index + 1} - ${link}`)}
     </button>
-  `).join("")
+  `
+    )
+    .join("")
   const safeCreator = qEscapeHtml(creator)
-  const safePublisher = qEscapeHtml(publishedBy || creator)
+  const safeNominator = qEscapeHtml(publishedBy || "Unknown")
   const safeHeader = qEscapeHtml(header)
-  const safeContent = qEscapeHtml(content).replace(/\n/g, '<br>')
+  const safeContent = qEscapeHtml(content).replace(/\n/g, "<br>")
   const safeFormattedDate = qEscapeHtml(formattedDate)
+  const optimisticNotice = cardData._optimisticPending
+    ? `<div class="board-progress-muted" style="margin: 0.75em 0; color: #ffd27d;">Published locally. Waiting for QDN indexing.</div>`
+    : ""
+  const identityBoxesHtml = `
+    <div class="card-identity-row">
+      ${buildIdentityBoxHtml(
+        "Nominee",
+        safeCreator,
+        creatorAddress || address || ""
+      )}
+      ${buildIdentityBoxHtml(
+        "Nominator",
+        safeNominator,
+        publishedByAddress || ""
+      )}
+    </div>
+  `
 
   // const minterGroupMembers = await fetchMinterGroupMembers()
   const minterGroupMembers = cachedMinterGroup
   // const minterAdmins = await fetchMinterGroupAdmins()
   const minterAdmins = cachedMinterAdmins
-  const { adminYes = 0, adminNo = 0, minterYes = 0, minterNo = 0, totalYes = 0, totalNo = 0, totalYesWeight = 0, totalNoWeight = 0, detailsHtml, userVote } = await processPollData(pollResults, minterGroupMembers, minterAdmins, creator, cardIdentifier)
-  createModal('links')
-  createModal('poll-details')
+  const {
+    adminYes = 0,
+    adminNo = 0,
+    minterYes = 0,
+    minterNo = 0,
+    totalYes = 0,
+    totalNo = 0,
+    totalYesWeight = 0,
+    totalNoWeight = 0,
+    detailsHtml,
+    userVote,
+  } = await processPollData(
+    pollResults,
+    minterGroupMembers,
+    minterAdmins,
+    creator,
+    cardIdentifier
+  )
+  createModal("links")
+  createModal("poll-details")
 
-  const inviteButtonHtml = isExistingMinter ? "" : await checkAndDisplayInviteButton(adminYes, creator, cardIdentifier)
-  let inviteHtmlAdd = (inviteButtonHtml) ? inviteButtonHtml : ''
+  const inviteButtonHtml = isExistingMinter
+    ? ""
+    : await checkAndDisplayInviteButton(adminYes, creator, cardIdentifier)
+  let inviteHtmlAdd = inviteButtonHtml ? inviteButtonHtml : ""
 
   let finalBgColor = bgColor
   let invitedText = "" // for "INVITED" label if found
   const addressInfo = await getAddressInfo(address)
-  const penaltyText = addressInfo.blocksMintedPenalty == 0 ? '' : '<p>(has Blocks Penalty)<p>'
-  const adjustmentText = addressInfo.blocksMintedAdjustment == 0 ? '' : '<p>(has Blocks Adjustment)<p>'
+  const penaltyText =
+    addressInfo.blocksMintedPenalty == 0 ? "" : "<p>(has Blocks Penalty)<p>"
+  const adjustmentText =
+    addressInfo.blocksMintedAdjustment == 0
+      ? ""
+      : "<p>(has Blocks Adjustment)<p>"
 
   try {
     const invites = await fetchGroupInvitesByAddress(address)
     const hasMinterInvite = invites.some((invite) => invite.groupId === 694)
     if (userVote === 0) {
-      finalBgColor = "rgba(1, 65, 39, 0.41)"; // or any green you want
+      finalBgColor = "rgba(1, 65, 39, 0.41)" // or any green you want
     } else if (userVote === 1) {
-      finalBgColor = "rgba(107, 3, 3, 0.3)"; // or any red you want
-    } else if (isExistingMinter){
+      finalBgColor = "rgba(107, 3, 3, 0.3)" // or any red you want
+    } else if (isExistingMinter) {
       finalBgColor = "rgb(99, 99, 99)"
       invitedText = `<h4 style="color:rgb(135, 55, 16); margin-bottom: 0.5em;">EXISTING MINTER</h4>`
     } else if (hasMinterInvite) {
       // If so, override background color & add an "INVITED" label
-      finalBgColor = "black"; 
+      finalBgColor = "black"
       invitedText = `<h4 style="color: gold; margin-bottom: 0.5em;">INVITED</h4>`
-      if (userState.accountName === creator || userState.accountAddress === creatorAddress){ //Check also if the creator is the user, and display the join group button if so.
+      if (
+        userState.accountName === creator ||
+        userState.accountAddress === creatorAddress
+      ) {
+        //Check also if the creator is the user, and display the join group button if so.
         inviteHtmlAdd = `
           <div id="join-button-container-${cardIdentifier}" style="margin-top: 1em;">
             <button 
@@ -2611,12 +3406,12 @@ const createCardHTML = async (cardData, pollResults, cardIdentifier, commentCoun
             </button>
           </div>
           `
-      }else{
+      } else {
         console.log(`user is not the minter... NOT displaying any join button`)
-        inviteHtmlAdd = ''
+        inviteHtmlAdd = ""
       }
     }
-       //do not display invite button as they're already invited. Create a join button instead.
+    //do not display invite button as they're already invited. Create a join button instead.
   } catch (error) {
     console.error("Error checking invites for user:", error)
   }
@@ -2626,14 +3421,16 @@ const createCardHTML = async (cardData, pollResults, cardIdentifier, commentCoun
     <div class="minter-card-header">
       ${avatarHtml}
       <h3>${safeCreator} - Level ${addressInfo.level}</h3>
-      <p>${safeHeader}</p>
+      ${identityBoxesHtml}
+      <div class="card-title-box">${safeHeader}</div>
       ${penaltyText}${adjustmentText}${invitedText}
+      ${optimisticNotice}
     </div>
-    <div class="support-header"><h5>USER'S POST</h5></div>
+    <div class="support-header"><h5>NOMINATION STATEMENT</h5></div>
     <div class="info">
       ${safeContent}
     </div>
-    <div class="support-header"><h5>USER'S LINKS</h5></div>
+    <div class="support-header"><h5>NOMINATION LINKS</h5></div>
     <div class="info-links">
       ${linksHTML}
     </div>
@@ -2644,22 +3441,22 @@ const createCardHTML = async (cardData, pollResults, cardIdentifier, commentCoun
         ${detailsHtml}
       </div>
       ${inviteHtmlAdd}
-      <div class="admin-results">
+      <div class="admin-results vote-results vote-results--admin">
         <span class="admin-yes">Admin Yes: ${adminYes}</span>
         <span class="admin-no">Admin No: ${adminNo}</span>
       </div>
-      <div class="minter-results">
+      <div class="minter-results vote-results vote-results--outlined">
         <span class="minter-yes">Minter Yes: ${minterYes}</span>
         <span class="minter-no">Minter No: ${minterNo}</span>
       </div>
-      <div class="total-results">
+      <div class="total-results vote-results vote-results--outlined">
         <span class="total-yes">Total Yes: ${totalYes}</span>
         <span class="total-yes">Weight: ${totalYesWeight}</span>
         <span class="total-no">Total No: ${totalNo}</span>
         <span class="total-no">Weight: ${totalNoWeight}</span>
       </div>
     </div>
-    <div class="support-header"><h5>SUPPORT ACTION FOR </h5><h5 style="color: #ffae42;">${safeCreator}</h5>
+    <div class="support-header"><h5>SUPPORT NOMINATION FOR </h5><h5 style="color: #ffae42;">${safeCreator}</h5>
     <p style="color: #c7c7c7; font-size: .65rem; margin-top: 1vh">(click COMMENTS button to open/close card comments)</p>
     </div>
     <div class="actions">
@@ -2674,8 +3471,7 @@ const createCardHTML = async (cardData, pollResults, cardIdentifier, commentCoun
       <textarea id="new-comment-${cardIdentifier}" placeholder="Write a comment..." style="width: 100%; margin-top: 10px;"></textarea>
       <button onclick="postComment('${cardIdentifier}')">Post Comment</button>
     </div>
-    <!-- Kakashi Note: Footer keeps nominee and nominator visible to reflect the nomination model clearly. -->
-    <p style="font-size: 0.75rem; margin-top: 3vh; color: #4496a1">Nominee: ${safeCreator} | Published By: ${safePublisher} - ${safeFormattedDate}</p>
+    <p class="card-published-date">Published ${safeFormattedDate}</p>
   </div>
   `
 }

@@ -1,6 +1,7 @@
 // // NOTE - Change isTestMode to false prior to actual release ---- !important - You may also change identifier if you want to not show older cards.
 const testMode = false
 const minterCardIdentifierPrefix = "Minter-board-card"
+const minterBoardPublishEditorKey = "minter-card-content"
 let isExistingCard = false
 let existingCardData = {}
 let existingCardIdentifier = ""
@@ -32,6 +33,7 @@ const minterBoardInfiniteState = {
 }
 const minterBoardSearchCacheByPrefix = new Map()
 const minterBoardCardDataCache = new Map()
+const minterBoardCardDataByIdentifier = new Map()
 const optimisticMinterBoardCardCache = new Map()
 const optimisticMinterBoardCommentCache = new Map()
 
@@ -62,75 +64,65 @@ const loadMinterBoardPage = async () => {
     <div class="minter-board-main" style="padding: 0.5vh; text-align: center;">
   
       <!-- Board Title + Intro -->
-      <h1 style="color: #527c9d;">The Minter Board</h1>
-      <p style="font-size: 1.2em; color:rgb(85, 119, 101)">
-        The Minter Board is where Minting Rights are Delegated.
-      </p>
-      <p style="font-size: 1.1em; color:rgb(85, 119, 119)">
-        To obtain minting rights, established level 5+ minters can publish nomination cards on your behalf. A subsequent vote will approve/deny the nomination.
-      </p>
-      <p>
-        After your card has received the necessary invite, return to the card and click the Join Group button to join the MINTER group.
-        (A Detailed how-to guide will be coming soon.) 
-      </p>
-
+      <h1 style="color:rgb(194, 221, 241);">The Minter Board</h1>
       <div class="minter-steps">
         <article class="minter-step-card">
           <span class="minter-step-card-index">1</span>
           <div class="minter-step-card-copy">
-            <h4>Your Nominee Creates a Minter Card for You</h4>
+            <h4>Your Nominator Creates a Minter Card for You that Goes up for Discussion + Vote. Note - ONE Minting Account Per Person.</h4>
           </div>
         </article>
         <article class="minter-step-card">
           <span class="minter-step-card-index">2</span>
           <div class="minter-step-card-copy">
-            <h4>The Community + Minter Admins Comment + Vote</h4>
+            <h4>Community + Minter Admins Comment & Vote. A GROUP_APPROVAL invite from Minter Admins to MINTER Group is Created if Successful.</h4>
           </div>
         </article>
         <article class="minter-step-card">
           <span class="minter-step-card-index">3</span>
           <div class="minter-step-card-copy">
-            <h4>Once Voted, a GROUP_APPROVAL-based Invite is Sent if Successful</h4>
+            <h4>Check Back Frequently and See the Current Status, and Accept Your Invite Upon Success.</h4>
           </div>
         </article>
       </div>
 
       <div class="card-display-options">
-        <!-- Centered heading -->
-        <h4 class="options-heading"style="color: #527c9d;">CARD DISPLAY OPTIONS</h4>
+        <div class="options-header">
+          <h4 class="options-heading">DISPLAY SETTINGS</h4>
+          <p class="options-subheading">Choose how the board is sorted and filtered.</p>
+        </div>
+        <div class="options-grid">
+          <label class="options-field" for="sort-select">
+            <span class="options-label">Sort cards by</span>
+            <select id="sort-select" class="options-select">
+              <option value="newest" selected>Date</option>
+              <option value="name">Nominee Name</option>
+              <option value="publisher-name">Publisher Name</option>
+              <option value="recent-comments">Newest Comments</option>
+              <option value="least-votes">Least Votes</option>
+              <option value="most-votes">Most Votes</option>
+            </select>
+          </label>
 
-        <!-- A flex container for all the controls (sort, time range, checkbox) -->
-        <div class="options-row">
-          <!-- Sort by -->
-          <label for="sort-select" class="options-label">Sort By:</label>
-          <select id="sort-select" class="options-select">
-            <option value="newest" selected>Date</option>
-            <option value="name">Nominee Name</option>
-            <option value="publisher-name">Publisher Name</option>
-            <option value="recent-comments">Newest Comments</option>
-            <option value="least-votes">Least Votes</option>
-            <option value="most-votes">Most Votes</option>
-          </select>
+          <label class="options-field" for="time-range-select">
+            <span class="options-label">Show cards from</span>
+            <select id="time-range-select" class="options-select">
+              <option value="0">Show ALL Cards Published</option>
+              <option value="1">...Within Last 1 Day</option>
+              <option value="7">...Within Last 7 Days</option>
+              <option value="30">...Within 30 Days</option>
+              <option value="45" selected>Published Within Last 45 Days</option>
+              <option value="60">...Within 60 Days</option>
+              <option value="90">...Within 90 Days</option>
+            </select>
+          </label>
 
-          <!-- Time range -->
-          <label for="time-range-select" class="options-label">Show Cards:</label>
-          <select id="time-range-select" class="options-select">
-            <option value="0">Show ALL Cards Published</option>
-            <option value="1">...Within Last 1 Day</option>
-            <option value="7">...Within Last 7 Days</option>
-            <option value="30">...Within 30 Days</option>
-            <option value="45" selected>Published Within Last 45 Days</option>
-            <option value="60">...Within 60 Days</option>
-            <option value="90">...Within 90 Days</option>
-          </select>
-
-          <!-- Show existing checkbox -->
-          <label class="options-check">
+          <label class="options-toggle">
             <input type="checkbox" id="show-existing-checkbox" />
-            Show Existing Minter Cards (History)
+            <span>Show Existing Minter Cards (History)</span>
           </label>
         </div>
-        </div>
+      </div>
         <!-- Card counter heading centered, with actual counter below if desired -->
         <div style="margin-bottom: 1em;">
           <div style="text-align: center; margin-top: 0.5em;">
@@ -143,11 +135,11 @@ const loadMinterBoardPage = async () => {
         <!-- Row for Publish / Refresh actions -->
         <div class="card-actions" style="margin-bottom: 1em;">
           <button id="publish-card-button" class="publish-card-button">
-            PUBLISH CARD
+            CREATE NOMINATION
           </button>
           <button id="refresh-cards-button" class="refresh-cards-button"
             style="padding: 1vh;">
-            REFRESH CARDS
+            REFRESH
           </button>
         </div>
 
@@ -163,22 +155,32 @@ const loadMinterBoardPage = async () => {
             <label for="card-header">Nomination Summary:</label>
             <input type="text" id="card-header" maxlength="100" placeholder="Summarize why you are nominating this person" required>
 
-            <label for="card-content">Nomination Statement:</label>
-            <textarea id="card-content" placeholder="Share why this nominee should be considered for minting rights. Include relevant context, contributions, and anything voters should review." required>
-            </textarea>
+            <label>Nomination Statement:</label>
+            ${typeof getBoardRichTextComposerHtml === "function"
+              ? getBoardRichTextComposerHtml(
+                  minterBoardPublishEditorKey,
+                  "richtext-compose publish-compose"
+                )
+              : `<textarea id="card-content" placeholder="Share why this nominee should be considered for minting privileges. Include relevant context, contributions, and anything voters should review." required></textarea>`}
 
             <label for="card-links">Links (qortal://...):</label>
             <div id="links-container">
               <input type="text" class="card-link" placeholder="Enter QDN link">
             </div>
             <button type="button" id="add-link-button">Add Another Link</button>
-            <button type="submit" id="submit-publish-button">Publish Card</button>
+            <button type="submit" id="submit-publish-button">PUBLISH</button>
             <button type="button" id="cancel-publish-button">Cancel</button>
           </form>
         </div>
     </div>
   `
   document.body.appendChild(mainContent)
+  if (typeof clearBoardCommentEditState === "function") {
+    clearBoardCommentEditState()
+  }
+  if (typeof boardCommentContentCache !== "undefined") {
+    boardCommentContentCache.clear()
+  }
   createScrollToTopButton()
 
   document
@@ -194,6 +196,17 @@ const loadMinterBoardPage = async () => {
       const publishCardView = document.getElementById("publish-card-view")
       publishCardView.style.display = "flex"
       document.getElementById("cards-container").style.display = "none"
+      if (typeof ensureBoardRichTextEditor === "function") {
+        ensureBoardRichTextEditor(
+          minterBoardPublishEditorKey,
+          "Share why this nominee should be considered for minting privileges."
+        )
+        clearBoardRichTextEditor(minterBoardPublishEditorKey)
+      }
+      const submitButton = document.getElementById("submit-publish-button")
+      if (submitButton) {
+        submitButton.textContent = "PUBLISH"
+      }
     })
 
   document
@@ -213,10 +226,24 @@ const loadMinterBoardPage = async () => {
   document
     .getElementById("cancel-publish-button")
     .addEventListener("click", async () => {
+      const publishForm = document.getElementById("publish-card-form")
+      if (publishForm) {
+        publishForm.reset()
+      }
+      if (typeof clearBoardRichTextEditor === "function") {
+        clearBoardRichTextEditor(minterBoardPublishEditorKey)
+      }
       const cardsContainer = document.getElementById("cards-container")
       cardsContainer.style.display = "flex" // Restore visibility
       const publishCardView = document.getElementById("publish-card-view")
       publishCardView.style.display = "none" // Hide the publish form
+      isExistingCard = false
+      existingCardData = {}
+      existingCardIdentifier = ""
+      const submitButton = document.getElementById("submit-publish-button")
+      if (submitButton) {
+        submitButton.textContent = "PUBLISH"
+      }
     })
 
   document
@@ -800,6 +827,9 @@ const rememberOptimisticMinterBoardComment = (
       },
     }
   )
+  if (typeof rememberBoardCommentContent === "function") {
+    rememberBoardCommentContent(commentIdentifier, commentData?.content || "")
+  }
 }
 
 const getOptimisticMinterBoardComments = (
@@ -1542,7 +1572,18 @@ const loadCardIntoForm = async (cardData) => {
   document.getElementById("nominee-name-input").value =
     cardData.creator || cardData.creatorAddress || ""
   document.getElementById("card-header").value = cardData.header
-  document.getElementById("card-content").value = cardData.content
+  if (typeof ensureBoardRichTextEditor === "function") {
+    ensureBoardRichTextEditor(
+      minterBoardPublishEditorKey,
+      "Share why this nominee should be considered for minting privileges."
+    )
+    setBoardRichTextEditorHtml(minterBoardPublishEditorKey, cardData.content)
+  } else {
+    const contentField = document.getElementById("card-content")
+    if (contentField) {
+      contentField.value = cardData.content
+    }
+  }
 
   const linksContainer = document.getElementById("links-container")
   linksContainer.innerHTML = ""
@@ -1560,6 +1601,48 @@ const loadCardIntoForm = async (cardData) => {
     linkInput.className = "card-link"
     linkInput.placeholder = "Enter QDN link"
     linksContainer.appendChild(linkInput)
+  }
+}
+
+const openMinterBoardCardEditor = async (cardIdentifier) => {
+  const cardData = minterBoardCardDataByIdentifier.get(cardIdentifier)
+  if (!cardData) {
+    alert("Unable to load this card for editing right now.")
+    return
+  }
+
+  isExistingCard = true
+  existingCardIdentifier = cardIdentifier
+  existingCardData = cardData
+
+  const publishForm = document.getElementById("publish-card-form")
+  if (publishForm) {
+    publishForm.reset()
+  }
+
+  const linksContainer = document.getElementById("links-container")
+  if (linksContainer) {
+    linksContainer.innerHTML = ""
+  }
+
+  const publishCardView = document.getElementById("publish-card-view")
+  const cardsContainer = document.getElementById("cards-container")
+  if (cardsContainer) {
+    cardsContainer.style.display = "none"
+  }
+  if (publishCardView) {
+    publishCardView.style.display = "flex"
+  }
+
+  await loadCardIntoForm(cardData)
+
+  const submitButton = document.getElementById("submit-publish-button")
+  if (submitButton) {
+    submitButton.textContent = "UPDATE NOMINATION"
+  }
+
+  if (publishCardView?.scrollIntoView) {
+    publishCardView.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 }
 
@@ -1634,7 +1717,14 @@ const publishCard = async (cardIdentifierPrefix) => {
   }
 
   const header = document.getElementById("card-header").value.trim()
-  const content = document.getElementById("card-content").value.trim()
+  const contentText =
+    typeof getBoardRichTextEditorText === "function"
+      ? getBoardRichTextEditorText(minterBoardPublishEditorKey)
+      : document.getElementById("card-content")?.value?.trim() || ""
+  const content =
+    typeof getBoardRichTextEditorHtml === "function"
+      ? getBoardRichTextEditorHtml(minterBoardPublishEditorKey)
+      : qRenderRichContentHtml(contentText)
   const links = Array.from(document.querySelectorAll(".card-link"))
     .map((input) => input.value.trim())
     .filter((link) => link.startsWith("qortal://"))
@@ -1760,8 +1850,15 @@ const publishCard = async (cardIdentifierPrefix) => {
     existingCardIdentifier = ""
 
     document.getElementById("publish-card-form").reset()
+    if (typeof clearBoardRichTextEditor === "function") {
+      clearBoardRichTextEditor(minterBoardPublishEditorKey)
+    }
     document.getElementById("publish-card-view").style.display = "none"
     document.getElementById("cards-container").style.display = "flex"
+    const submitButton = document.getElementById("submit-publish-button")
+    if (submitButton) {
+      submitButton.textContent = "PUBLISH"
+    }
 
     await loadCards(minterCardIdentifierPrefix, true)
   } catch (error) {
@@ -2048,10 +2145,21 @@ const buildVotersTableHtml = (voters, tableColor) => {
 
 // Post a comment on a card. ---------------------------------
 const postComment = async (cardIdentifier) => {
-  const commentInput = document.getElementById(`new-comment-${cardIdentifier}`)
-  const commentText = commentInput.value.trim()
+  const editingState =
+    typeof boardCommentEditState !== "undefined"
+      ? boardCommentEditState
+      : { cardIdentifier: "", commentIdentifier: "", isEditing: false }
+  const commentText =
+    typeof getBoardCommentEditorText === "function"
+      ? getBoardCommentEditorText(cardIdentifier)
+      : ""
+  const fallbackCommentInput = document.getElementById(
+    `new-comment-${cardIdentifier}`
+  )
+  const combinedCommentText =
+    commentText || fallbackCommentInput?.value?.trim() || ""
 
-  if (!commentText) {
+  if (!combinedCommentText) {
     alert("Comment cannot be empty!")
     return
   }
@@ -2064,15 +2172,24 @@ const postComment = async (cardIdentifier) => {
       alert("You are on the block list and cannot publish comments.")
       return
     }
+    const commentHtml =
+      (typeof getBoardCommentEditorHtml === "function"
+        ? getBoardCommentEditorHtml(cardIdentifier)
+        : "") || qRenderBoardCommentHtml(combinedCommentText)
     const commentData = {
-      content: commentText,
+      content: commentHtml,
       creator: userState.accountName,
       timestamp: Date.now(),
     }
-    const uniqueCommentIdentifier = `comment-${cardIdentifier}-${await uid()}`
+    const isEditingThisComment =
+      editingState.isEditing &&
+      editingState.cardIdentifier === cardIdentifier &&
+      editingState.commentIdentifier
+    const uniqueCommentIdentifier = isEditingThisComment
+      ? editingState.commentIdentifier
+      : `comment-${cardIdentifier}-${await uid()}`
     let base64CommentData = await objectToBase64(commentData)
     if (!base64CommentData) {
-      console.log("objectToBase64 failed, fallback to btoa()")
       base64CommentData = btoa(JSON.stringify(commentData))
     }
 
@@ -2091,13 +2208,33 @@ const postComment = async (cardIdentifier) => {
       commentData,
       commentData.timestamp
     )
-    commentInput.value = ""
-    updateDisplayedCommentCount(cardIdentifier, 1)
+    if (typeof clearBoardCommentEditState === "function") {
+      await clearBoardCommentEditState(cardIdentifier)
+    } else if (typeof clearBoardCommentEditor === "function") {
+      clearBoardCommentEditor(cardIdentifier)
+    }
+    if (fallbackCommentInput) {
+      fallbackCommentInput.value = ""
+    }
+    if (!isEditingThisComment) {
+      updateDisplayedCommentCount(cardIdentifier, 1)
+    }
     const commentsSection = document.getElementById(
       `comments-section-${cardIdentifier}`
     )
     if (commentsSection && commentsSection.style.display === "block") {
       await displayComments(cardIdentifier)
+      if (
+        isEditingThisComment &&
+        typeof scrollBoardCommentIntoView === "function"
+      ) {
+        await scrollBoardCommentIntoView(
+          cardIdentifier,
+          uniqueCommentIdentifier
+        )
+      } else if (typeof scrollBoardCommentsToBottom === "function") {
+        await scrollBoardCommentsToBottom(cardIdentifier)
+      }
       const commentButton = document.getElementById(
         `comment-button-${cardIdentifier}`
       )
@@ -2184,53 +2321,118 @@ const displayComments = async (cardIdentifier) => {
             return null
           }
           const commenterName = commentDataResponse.creator
-          const voterInfo = voterMap.get(commenterName)
-          let commentColor = "transparent"
-          let adminBadge = ""
-
           if (blockedNames.includes(commenterName)) {
             console.warn(`Skipping blocked commenter: ${commenterName}`)
             return null
           }
+          const commenterLevel =
+            typeof getBoardAccountLevel === "function"
+              ? await getBoardAccountLevel(commenterName)
+              : null
+          const voterInfo = voterMap.get(commenterName)
+          const commentClasses = ["comment"]
+          const commentStyles = []
+          let adminBadge = ""
+          const levelBadgeHtml =
+            commenterLevel !== null && typeof commenterLevel !== "undefined"
+              ? `<span class="comment-level-badge" title="${qEscapeAttr(
+                  `Account level: ${commenterLevel}`
+                )}" aria-label="${qEscapeAttr(
+                  `Account level: ${commenterLevel}`
+                )}">L${qEscapeHtml(String(commenterLevel))}</span>`
+              : ""
 
           if (voterInfo) {
+            commentClasses.push("comment--voted")
             if (voterInfo.voterType === "Admin") {
-              commentColor =
+              commentClasses.push("comment--vote-admin")
+              const accentColor =
                 voterInfo.vote === "yes"
-                  ? "rgba(21, 150, 21, 0.6)"
-                  : "rgba(212, 37, 64, 0.6)" // Light green for yes, light red for no
-              const badgeColor =
+                  ? "rgba(92, 196, 130, 0.95)"
+                  : "rgba(221, 107, 107, 0.95)"
+              const accentSoft =
                 voterInfo.vote === "yes"
-                  ? "rgb(206, 195, 77)"
-                  : "rgb(121, 119, 90)"
-              adminBadge = `<span style="color: ${badgeColor}; font-weight: bold; margin-left: 0.5em;">(Admin)</span>`
+                  ? "rgba(92, 196, 130, 0.2)"
+                  : "rgba(221, 107, 107, 0.2)"
+              commentClasses.push(
+                voterInfo.vote === "yes"
+                  ? "comment--vote-yes"
+                  : "comment--vote-no"
+              )
+              commentStyles.push(`--comment-accent: ${accentColor}`)
+              commentStyles.push(`--comment-accent-soft: ${accentSoft}`)
+              adminBadge = `<span class="comment-role-badge comment-role-badge--admin">Admin</span>`
             } else {
-              commentColor =
+              commentClasses.push("comment--vote-minter")
+              const accentColor =
                 voterInfo.vote === "yes"
-                  ? "rgba(0, 100, 0, 0.3)"
-                  : "rgba(100, 0, 0, 0.3)" // Darker green for yes, darker red for no
+                  ? "rgba(92, 196, 130, 0.55)"
+                  : "rgba(221, 107, 107, 0.55)"
+              const accentSoft =
+                voterInfo.vote === "yes"
+                  ? "rgba(92, 196, 130, 0.12)"
+                  : "rgba(221, 107, 107, 0.12)"
+              commentClasses.push(
+                voterInfo.vote === "yes"
+                  ? "comment--vote-yes"
+                  : "comment--vote-no"
+              )
+              commentStyles.push(`--comment-accent: ${accentColor}`)
+              commentStyles.push(`--comment-accent-soft: ${accentSoft}`)
             }
           }
           const timestamp = new Date(
             commentDataResponse.timestamp
           ).toLocaleString()
-          // Kakashi Note: Comment author, body, and timestamp are escaped before insertion to keep card discussions render-safe.
           const safeCommenterName = qEscapeHtml(commenterName)
-          const safeCommentContent = qEscapeHtml(
+          const commenterNameHtml =
+            typeof buildBoardAccountTriggerHtml === "function"
+              ? buildBoardAccountTriggerHtml({
+                  name: commenterName,
+                  label: commenterName,
+                  className: "comment-author-name-link",
+                  tagName: "button",
+                })
+              : `<span class="comment-author-name">${safeCommenterName}</span>`
+          if (typeof rememberBoardCommentContent === "function") {
+            rememberBoardCommentContent(
+              comment.identifier,
+              commentDataResponse.content || ""
+            )
+          }
+          const canEditComment =
+            typeof canCurrentUserEditPublishedComment === "function"
+              ? await canCurrentUserEditPublishedComment(commenterName)
+              : false
+          const editButtonHtml =
+            canEditComment &&
+            typeof buildBoardCommentEditButtonHtml === "function"
+              ? buildBoardCommentEditButtonHtml({
+                  cardIdentifier,
+                  commentIdentifier: comment.identifier,
+                  publisherName: commenterName,
+                })
+              : ""
+          const renderedCommentContent = qRenderBoardCommentHtml(
             commentDataResponse.content
-          ).replace(/\n/g, "<br>")
+          )
           const safeTimestamp = qEscapeHtml(timestamp)
           const optimisticNotice = commentDataResponse._optimisticPending
             ? `<p class="board-progress-muted" style="color: #ffd27d;"><i>Published locally. Waiting for QDN indexing.</i></p>`
             : ""
+          const commentStyleAttr = commentStyles.length
+            ? ` style="${commentStyles.join("; ")}"`
+            : ""
           return `
-            <div class="comment" style="border: 1px solid gray; margin: 1vh 0; padding: 1vh; background: ${commentColor};">
-              <p>
-                <strong>${safeCommenterName}</strong>
+            <div class="${commentClasses.join(" ")}"${commentStyleAttr} data-comment-identifier="${qEscapeAttr(comment.identifier)}">
+              ${editButtonHtml}
+              <p class="comment-meta">
+                ${commenterNameHtml}
+                ${levelBadgeHtml}
                 ${adminBadge}
               </p>
-              <p>${safeCommentContent}</p>
-              <p><i>${safeTimestamp}</i></p>
+              <div class="comment-body ql-editor">${renderedCommentContent}</div>
+              <p class="comment-timestamp"><i>${safeTimestamp}</i></p>
               ${optimisticNotice}
             </div>
           `
@@ -2268,8 +2470,11 @@ const toggleComments = async (cardIdentifier) => {
   if (isHidden) {
     // Show comments
     commentButton.textContent = "LOADING..."
-    await displayComments(cardIdentifier)
     commentsSection.style.display = "block"
+    if (typeof ensureBoardCommentEditor === "function") {
+      ensureBoardCommentEditor(cardIdentifier, "Write a comment...")
+    }
+    await displayComments(cardIdentifier)
     // Change the button text to 'HIDE COMMENTS'
     commentButton.textContent = "HIDE COMMENTS"
   } else {
@@ -2325,23 +2530,41 @@ const createModal = (modalType = "") => {
     return
   }
   const isIframe = modalType === "links"
+  const isAccountModal = modalType === "account"
+  const modalWidth = isIframe || isAccountModal ? "92vw" : "80%"
+  const modalHeight = isIframe || isAccountModal ? "88vh" : "70%"
+  const modalMargin = isIframe || isAccountModal ? "4vh auto" : "10% auto"
+  const modalBackground =
+    isIframe || isAccountModal
+      ? "rgba(5, 10, 14, 0.94)"
+      : "rgba(0, 0, 0, 0.80)"
+  const modalBorder =
+    isIframe || isAccountModal
+      ? "1px solid rgba(157, 193, 196, 0.28)"
+      : "none"
+  const modalShadow =
+    isIframe || isAccountModal ? "0 20px 60px rgba(0, 0, 0, 0.55)" : "none"
 
   const modalHTML = `
     <div id="${modalType}-modal"
          style="display: none;
                 position: fixed;
-                top: 0; left: 0;
+                inset: 0;
                 width: 100%; height: 100%;
                 background: rgba(0, 0, 0, 0.50);
                 z-index: 10000;">
       <div id="${modalType}-modalContainer"
            style="position: relative;
-                  margin: 10% auto;
-                  width: 80%; 
-                  height: 70%; 
-                  background:rgba(0, 0, 0, 0.80) ;
-                  border-radius: 10px;
-                  overflow: hidden;">
+                  margin: ${modalMargin};
+                  width: ${modalWidth};
+                  height: ${modalHeight};
+                  max-width: 92rem;
+                  max-height: 92vh;
+                  background: ${modalBackground};
+                  border: ${modalBorder};
+                  border-radius: 12px;
+                  overflow: hidden;
+                  box-shadow: ${modalShadow};">
         ${
           isIframe
             ? `<iframe id="${modalType}-modalContent" 
@@ -2354,13 +2577,15 @@ const createModal = (modalType = "") => {
         }
 
         <button onclick="closeModal('${modalType}')"
-                style="position: absolute; top: 0.2rem; right: 0.2rem;
+                style="position: absolute; top: 0.55rem; right: 0.55rem;
+                       z-index: 20;
                        background:rgba(0, 0, 0, 0.66); color: white; border: none;
                        font-size: 2.2rem;
                        padding: 0.4rem 1rem; 
                        border-radius: 0.33rem; 
                        border-style: dashed; 
                        border-color:rgb(213, 224, 225); 
+                       pointer-events: auto;
                        "
                 onmouseover="this.style.backgroundColor='rgb(73, 7, 7) '"
                 onmouseout="this.style.backgroundColor='rgba(5, 14, 11, 0.63) '">
@@ -2394,8 +2619,10 @@ const closeModal = async (modalType = "links") => {
   if (modal) {
     modal.style.display = "none"
   }
-  if (modalContent) {
+  if (modalContent && "src" in modalContent) {
     modalContent.src = ""
+  } else if (modalContent) {
+    modalContent.innerHTML = ""
   }
 }
 
@@ -3223,7 +3450,7 @@ function copyAddressFromIdentityBox(buttonEl) {
   }
 }
 
-function buildIdentityBoxHtml(label, displayName, address) {
+function buildIdentityBoxHtml(label, displayName, address, level = null) {
   const safeLabel = qEscapeHtml(label)
   const safeDisplayName = qEscapeHtml(displayName || "Unknown")
   const normalizedAddress = address || ""
@@ -3238,6 +3465,30 @@ function buildIdentityBoxHtml(label, displayName, address) {
       : `${label} ${displayName || "Unknown"}. Address unavailable.`
   )
   const emptyClass = normalizedAddress ? "" : " is-empty"
+  const hasLevelBadge = level !== null && typeof level !== "undefined"
+  const safeLevel = hasLevelBadge ? qEscapeHtml(String(level)) : ""
+  const levelBadgeHtml = hasLevelBadge
+    ? `
+      <span
+        class="card-identity-box-level"
+        title="${qEscapeAttr(`Account level: ${level}`)}"
+        aria-label="${qEscapeAttr(`Account level: ${level}`)}"
+      >
+        L${safeLevel}
+      </span>
+    `
+    : ""
+  const nameTriggerHtml =
+    typeof buildBoardAccountTriggerHtml === "function"
+      ? buildBoardAccountTriggerHtml({
+          name: displayName || "Unknown",
+          address: normalizedAddress,
+          label: displayName || "Unknown",
+          className:
+            "card-identity-box-name card-account-trigger card-account-trigger--inline",
+          tagName: "span",
+        })
+      : `<span class="card-identity-box-name">${safeDisplayName}</span>`
 
   return `
     <button
@@ -3250,7 +3501,10 @@ function buildIdentityBoxHtml(label, displayName, address) {
       onclick="copyAddressFromIdentityBox(this)"
     >
       <span class="card-identity-box-label">${safeLabel}</span>
-      <span class="card-identity-box-name">${safeDisplayName}</span>
+      <span class="card-identity-box-name-row">
+        ${nameTriggerHtml}
+        ${levelBadgeHtml}
+      </span>
     </button>
   `
 }
@@ -3302,6 +3556,7 @@ const createCardHTML = async (
     : new Date(timestamp).toLocaleString()
   const avatarHtml = await getMinterAvatar(creator)
   const linksArray = Array.isArray(links) ? links : []
+  minterBoardCardDataByIdentifier.set(cardIdentifier, cardData)
   const linksHTML = linksArray
     .map(
       (link, index) => `
@@ -3314,24 +3569,59 @@ const createCardHTML = async (
     )
     .join("")
   const safeCreator = qEscapeHtml(creator)
-  const safeNominator = qEscapeHtml(publishedBy || "Unknown")
   const safeHeader = qEscapeHtml(header)
-  const safeContent = qEscapeHtml(content).replace(/\n/g, "<br>")
+  const renderedContent = qRenderRichContentHtml(content)
+  const creatorLinkHtml =
+    typeof buildBoardAccountTriggerHtml === "function"
+      ? buildBoardAccountTriggerHtml({
+          name: creator || "Unknown",
+          address: creatorAddress || address || "",
+          label: creator || "Unknown",
+          className: "card-account-trigger card-account-trigger--heading",
+          tagName: "button",
+        })
+      : safeCreator
   const safeFormattedDate = qEscapeHtml(formattedDate)
   const optimisticNotice = cardData._optimisticPending
     ? `<div class="board-progress-muted" style="margin: 0.75em 0; color: #ffd27d;">Published locally. Waiting for QDN indexing.</div>`
+    : ""
+  const [nomineeAddressInfo, nominatorAddressInfo] = await Promise.all([
+    getAddressInfoCached(address),
+    publishedByAddress
+      ? getAddressInfoCached(publishedByAddress)
+      : Promise.resolve(null),
+  ])
+  const nomineeLevel = nomineeAddressInfo?.level ?? 0
+  const nominatorLevel = nominatorAddressInfo?.level ?? null
+  const canEditCard = await canCurrentUserEditPublishedCard(
+    publishedBy,
+    publishedByAddress || ""
+  )
+  const editButtonHtml = canEditCard
+    ? `
+      <button
+        type="button"
+        class="card-edit-button"
+        title="Edit card"
+        aria-label="Edit card"
+        onclick="openMinterBoardCardEditor('${qEscapeAttr(cardIdentifier)}')"
+      >
+        <span class="mobi-mbri-edit-2" aria-hidden="true"></span>
+      </button>
+    `
     : ""
   const identityBoxesHtml = `
     <div class="card-identity-row">
       ${buildIdentityBoxHtml(
         "Nominee",
-        safeCreator,
+        creator,
         creatorAddress || address || ""
       )}
       ${buildIdentityBoxHtml(
         "Nominator",
-        safeNominator,
-        publishedByAddress || ""
+        publishedBy || "Unknown",
+        publishedByAddress || "",
+        nominatorLevel
       )}
     </div>
   `
@@ -3367,23 +3657,26 @@ const createCardHTML = async (
   let inviteHtmlAdd = inviteButtonHtml ? inviteButtonHtml : ""
 
   let finalBgColor = bgColor
+  const userVoteStateClass =
+    userVote === 0
+      ? "card--user-vote-yes"
+      : userVote === 1
+      ? "card--user-vote-no"
+      : ""
   let invitedText = "" // for "INVITED" label if found
-  const addressInfo = await getAddressInfo(address)
   const penaltyText =
-    addressInfo.blocksMintedPenalty == 0 ? "" : "<p>(has Blocks Penalty)<p>"
+    (nomineeAddressInfo?.blocksMintedPenalty ?? 0) === 0
+      ? ""
+      : "<p>(has Blocks Penalty)<p>"
   const adjustmentText =
-    addressInfo.blocksMintedAdjustment == 0
+    (nomineeAddressInfo?.blocksMintedAdjustment ?? 0) === 0
       ? ""
       : "<p>(has Blocks Adjustment)<p>"
 
   try {
     const invites = await fetchGroupInvitesByAddress(address)
     const hasMinterInvite = invites.some((invite) => invite.groupId === 694)
-    if (userVote === 0) {
-      finalBgColor = "rgba(1, 65, 39, 0.41)" // or any green you want
-    } else if (userVote === 1) {
-      finalBgColor = "rgba(107, 3, 3, 0.3)" // or any red you want
-    } else if (isExistingMinter) {
+    if (isExistingMinter) {
       finalBgColor = "rgb(99, 99, 99)"
       invitedText = `<h4 style="color:rgb(135, 55, 16); margin-bottom: 0.5em;">EXISTING MINTER</h4>`
     } else if (hasMinterInvite) {
@@ -3417,18 +3710,19 @@ const createCardHTML = async (
   }
 
   return `
-  <div class="minter-card" style="background-color: ${finalBgColor}">
+  <div class="minter-card ${userVoteStateClass}" style="background-color: ${finalBgColor}">
+    ${editButtonHtml}
     <div class="minter-card-header">
       ${avatarHtml}
-      <h3>${safeCreator} - Level ${addressInfo.level}</h3>
+      <h3>${creatorLinkHtml} - Level ${nomineeLevel}</h3>
       ${identityBoxesHtml}
       <div class="card-title-box">${safeHeader}</div>
       ${penaltyText}${adjustmentText}${invitedText}
       ${optimisticNotice}
     </div>
     <div class="support-header"><h5>NOMINATION STATEMENT</h5></div>
-    <div class="info">
-      ${safeContent}
+    <div class="info board-rich-content ql-editor">
+      ${renderedContent}
     </div>
     <div class="support-header"><h5>NOMINATION LINKS</h5></div>
     <div class="info-links">
@@ -3449,11 +3743,15 @@ const createCardHTML = async (
         <span class="minter-yes">Minter Yes: ${minterYes}</span>
         <span class="minter-no">Minter No: ${minterNo}</span>
       </div>
-      <div class="total-results vote-results vote-results--outlined">
-        <span class="total-yes">Total Yes: ${totalYes}</span>
-        <span class="total-yes">Weight: ${totalYesWeight}</span>
-        <span class="total-no">Total No: ${totalNo}</span>
-        <span class="total-no">Weight: ${totalNoWeight}</span>
+      <div class="total-results vote-results vote-results--outlined vote-results--totals">
+        <div class="vote-total-group">
+          <span class="total-yes">Total Yes: ${totalYes}</span>
+          <span class="vote-total-weight">Weight: ${totalYesWeight}</span>
+        </div>
+        <div class="vote-total-group">
+          <span class="total-no">Total No: ${totalNo}</span>
+          <span class="vote-total-weight">Weight: ${totalNoWeight}</span>
+        </div>
       </div>
     </div>
     <div class="support-header"><h5>SUPPORT NOMINATION FOR </h5><h5 style="color: #ffae42;">${safeCreator}</h5>
@@ -3468,8 +3766,12 @@ const createCardHTML = async (
     </div>
     <div id="comments-section-${cardIdentifier}" class="comments-section" style="display: none; margin-top: 20px;">
       <div id="comments-container-${cardIdentifier}" class="comments-container"></div>
-      <textarea id="new-comment-${cardIdentifier}" placeholder="Write a comment..." style="width: 100%; margin-top: 10px;"></textarea>
-      <button onclick="postComment('${cardIdentifier}')">Post Comment</button>
+      ${typeof getBoardCommentComposerHtml === "function"
+        ? getBoardCommentComposerHtml(cardIdentifier)
+        : `<textarea id="new-comment-${cardIdentifier}" placeholder="Write a comment..." style="width: 100%; margin-top: 10px;"></textarea>`}
+      ${typeof getBoardCommentActionBarHtml === "function"
+        ? getBoardCommentActionBarHtml(cardIdentifier, "postComment")
+        : `<button onclick="postComment('${cardIdentifier}')">Post Comment</button>`}
     </div>
     <p class="card-published-date">Published ${safeFormattedDate}</p>
   </div>

@@ -1,6 +1,7 @@
 
 const isEncryptedTestMode = false
 const encryptedCardIdentifierPrefix = "card-MAC"
+const adminBoardPublishEditorKey = "admin-card-content"
 let isUpdateCard = false
 let existingDecryptedCardData = {}
 let existingEncryptedCardIdentifier = {}
@@ -33,6 +34,7 @@ const adminBoardSearchCache = {
   hasAllRange: false
 }
 const adminBoardDecryptedCardCache = new Map()
+const adminBoardDecryptedCardByIdentifier = new Map()
 const optimisticEncryptedCommentCache = new Map()
 // let kickTransactions = []
 // let banTransactions = []
@@ -142,8 +144,13 @@ const loadAdminBoardPage = async () => {
         <input type="text" id="minter-name-input" maxlength="100" placeholder="input NAME or TOPIC" required>
         <label for="card-header">Header:</label>
         <input type="text" id="card-header" maxlength="100" placeholder="Explain main point/issue" required>
-        <label for="card-content">Content:</label>
-        <textarea id="card-content" placeholder="Enter any information you like... CHECK THE TOPIC CHECKBOX if you do not want to publish a NAME card. NAME cards are verified and can only be one per name. Links are displayed in in-app pop-up." required></textarea>
+        <label>Content:</label>
+        ${typeof getBoardRichTextComposerHtml === "function"
+          ? getBoardRichTextComposerHtml(
+              adminBoardPublishEditorKey,
+              "richtext-compose publish-compose"
+            )
+          : `<textarea id="card-content" placeholder="Enter any information you like... CHECK THE TOPIC CHECKBOX if you do not want to publish a NAME card. NAME cards are verified and can only be one per name. Links are displayed in in-app pop-up." required></textarea>`}
         <label for="card-links">Links (qortal://...):</label>
         <div id="links-container">
             <input type="text" class="card-link" placeholder="Enter QDN link">
@@ -157,13 +164,41 @@ const loadAdminBoardPage = async () => {
   `
 
   document.body.appendChild(mainContent)
+  if (typeof clearBoardCommentEditState === "function") {
+    clearBoardCommentEditState()
+  }
+  if (typeof boardCommentContentCache !== "undefined") {
+    boardCommentContentCache.clear()
+  }
   const publishCardButton = document.getElementById("publish-card-button")
 
   if (publishCardButton) {
     publishCardButton.addEventListener("click", async () => {
+      isUpdateCard = false
+      existingDecryptedCardData = {}
+      existingEncryptedCardIdentifier = {}
+      const publishForm = document.getElementById("publish-card-form")
+      if (publishForm) {
+        publishForm.reset()
+      }
+      const linksContainer = document.getElementById("links-container")
+      if (linksContainer) {
+        linksContainer.innerHTML = `<input type="text" class="card-link" placeholder="Enter QDN link">`
+      }
       const publishCardView = document.getElementById("publish-card-view")
       publishCardView.style.display = "flex"
       document.getElementById("encrypted-cards-container").style.display = "none"
+      if (typeof ensureBoardRichTextEditor === "function") {
+        ensureBoardRichTextEditor(
+          adminBoardPublishEditorKey,
+          "Enter any information you like."
+        )
+        clearBoardRichTextEditor(adminBoardPublishEditorKey)
+      }
+      const submitButton = document.getElementById("submit-publish-button")
+      if (submitButton) {
+        submitButton.textContent = "Publish Card"
+      }
     })
   }
   const refreshCardsButton = document.getElementById("refresh-cards-button")
@@ -179,10 +214,24 @@ const loadAdminBoardPage = async () => {
 
   if (cancelPublishButton) {
     cancelPublishButton.addEventListener("click", async () => {
+      const publishForm = document.getElementById("publish-card-form")
+      if (publishForm) {
+        publishForm.reset()
+      }
+      if (typeof clearBoardRichTextEditor === "function") {
+        clearBoardRichTextEditor(adminBoardPublishEditorKey)
+      }
       const encryptedCardsContainer = document.getElementById("encrypted-cards-container")
       encryptedCardsContainer.style.display = "flex"; // Restore visibility
       const publishCardView = document.getElementById("publish-card-view")
       publishCardView.style.display = "none"; // Hide the publish form
+      isUpdateCard = false
+      existingDecryptedCardData = {}
+      existingEncryptedCardIdentifier = {}
+      const submitButton = document.getElementById("submit-publish-button")
+      if (submitButton) {
+        submitButton.textContent = "Publish Card"
+      }
     })
   }
   const addLinkButton = document.getElementById("add-link-button")
@@ -383,6 +432,9 @@ const rememberOptimisticEncryptedComment = (cardIdentifier, publisherName, comme
       _optimisticPending: true
     }
   })
+  if (typeof rememberBoardCommentContent === "function") {
+    rememberBoardCommentContent(commentIdentifier, commentData?.content || "")
+  }
 }
 
 const getOptimisticEncryptedComments = (cardIdentifier, existingResourcesByIdentity = new Map()) => {
@@ -1000,7 +1052,21 @@ const loadEncryptedCardIntoForm = async (decryptedCardData) => {
     console.log("Loading existing card data:", decryptedCardData)
     document.getElementById("minter-name-input").value = decryptedCardData.minterName
     document.getElementById("card-header").value = decryptedCardData.header
-    document.getElementById("card-content").value = decryptedCardData.content
+    if (typeof ensureBoardRichTextEditor === "function") {
+      ensureBoardRichTextEditor(
+        adminBoardPublishEditorKey,
+        "Enter any information you like."
+      )
+      setBoardRichTextEditorHtml(
+        adminBoardPublishEditorKey,
+        decryptedCardData.content
+      )
+    } else {
+      const contentField = document.getElementById("card-content")
+      if (contentField) {
+        contentField.value = decryptedCardData.content
+      }
+    }
 
     const linksContainer = document.getElementById("links-container")
     linksContainer.innerHTML = ""; // Clear previous links
@@ -1011,6 +1077,50 @@ const loadEncryptedCardIntoForm = async (decryptedCardData) => {
       linkInput.value = link
       linksContainer.appendChild(linkInput)
     })
+  }
+}
+
+const openAdminBoardCardEditor = async (cardIdentifier) => {
+  const decryptedCardData = adminBoardDecryptedCardByIdentifier.get(cardIdentifier)
+  if (!decryptedCardData) {
+    alert("Unable to load this card for editing right now.")
+    return
+  }
+
+  isUpdateCard = true
+  existingEncryptedCardIdentifier = cardIdentifier
+  existingDecryptedCardData = decryptedCardData
+
+  const publishForm = document.getElementById("publish-card-form")
+  if (publishForm) {
+    publishForm.reset()
+  }
+
+  const linksContainer = document.getElementById("links-container")
+  if (linksContainer) {
+    linksContainer.innerHTML = ""
+  }
+
+  const publishCardView = document.getElementById("publish-card-view")
+  const encryptedCardsContainer = document.getElementById(
+    "encrypted-cards-container"
+  )
+  if (encryptedCardsContainer) {
+    encryptedCardsContainer.style.display = "none"
+  }
+  if (publishCardView) {
+    publishCardView.style.display = "flex"
+  }
+
+  await loadEncryptedCardIntoForm(decryptedCardData)
+
+  const submitButton = document.getElementById("submit-publish-button")
+  if (submitButton) {
+    submitButton.textContent = "Update Card"
+  }
+
+  if (publishCardView?.scrollIntoView) {
+    publishCardView.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 }
 
@@ -1037,7 +1147,14 @@ const publishEncryptedCard = async (isTopicModePassed = false) => {
 
   const minterNameInput = document.getElementById("minter-name-input").value.trim()
   const header = document.getElementById("card-header").value.trim()
-  const content = document.getElementById("card-content").value.trim()
+  const contentText =
+    typeof getBoardRichTextEditorText === "function"
+      ? getBoardRichTextEditorText(adminBoardPublishEditorKey)
+      : document.getElementById("card-content")?.value?.trim() || ""
+  const content =
+    typeof getBoardRichTextEditorHtml === "function"
+      ? getBoardRichTextEditorHtml(adminBoardPublishEditorKey)
+      : qRenderRichContentHtml(contentText)
   const links = Array.from(document.querySelectorAll(".card-link"))
     .map(input => input.value.trim())
     .filter(link => link.startsWith("qortal://"))
@@ -1159,8 +1276,18 @@ const publishEncryptedCard = async (isTopicModePassed = false) => {
     }
 
     document.getElementById("publish-card-form").reset()
+    if (typeof clearBoardRichTextEditor === "function") {
+      clearBoardRichTextEditor(adminBoardPublishEditorKey)
+    }
     document.getElementById("publish-card-view").style.display = "none"
     document.getElementById("encrypted-cards-container").style.display = "flex"
+    isUpdateCard = false
+    existingDecryptedCardData = {}
+    existingEncryptedCardIdentifier = {}
+    const submitButton = document.getElementById("submit-publish-button")
+    if (submitButton) {
+      submitButton.textContent = "Publish Card"
+    }
     isTopic = false; // reset global
   } catch (error) {
     console.error("Error publishing card or poll:", error)
@@ -1183,31 +1310,50 @@ const getEncryptedCommentCount = async (cardIdentifier) => {
 
 // Post a comment on a card. ---------------------------------
 const postEncryptedComment = async (cardIdentifier) => {
-  const commentInput = document.getElementById(`new-comment-${cardIdentifier}`)
-  const commentText = commentInput.value.trim()
+  const editingState =
+    typeof boardCommentEditState !== "undefined"
+      ? boardCommentEditState
+      : { cardIdentifier: "", commentIdentifier: "", isEditing: false }
+  const commentText =
+    typeof getBoardCommentEditorText === "function"
+      ? getBoardCommentEditorText(cardIdentifier)
+      : ""
+  const fallbackCommentInput = document.getElementById(
+    `new-comment-${cardIdentifier}`
+  )
+  const combinedCommentText =
+    commentText || fallbackCommentInput?.value?.trim() || ""
 
-  if (!commentText) {
+  if (!combinedCommentText) {
     alert('Comment cannot be empty!')
     return
   }
   const postTimestamp = Date.now()
+  const commentHtml =
+    (typeof getBoardCommentEditorHtml === "function"
+      ? getBoardCommentEditorHtml(cardIdentifier)
+      : "") || qRenderBoardCommentHtml(combinedCommentText)
   const commentData = {
-    content: commentText,
+    content: commentHtml,
     creator: userState.accountName,
     timestamp: postTimestamp,
   }
-  const commentIdentifier = `comment-${cardIdentifier}-${await uid()}`
+  const isEditingThisComment =
+    editingState.isEditing &&
+    editingState.cardIdentifier === cardIdentifier &&
+    editingState.commentIdentifier
+  const commentIdentifier = isEditingThisComment
+    ? editingState.commentIdentifier
+    : `comment-${cardIdentifier}-${await uid()}`
 
   if (!Array.isArray(adminPublicKeys) || (adminPublicKeys.length === 0) || (!adminPublicKeys)) {
-    console.log('adminPpublicKeys variable failed checks, calling for admin public keys from API (comment)',adminPublicKeys)
     const verifiedAdminPublicKeys = await fetchAdminGroupsMembersPublicKeys()
     adminPublicKeys = verifiedAdminPublicKeys
   } 
 
   try {
-    const base64CommentData = await objectToBase64(commentData)
+    let base64CommentData = await objectToBase64(commentData)
     if (!base64CommentData) {
-      console.log(`initial base64 object creation with objectToBase64 failed, using btoa...`)
       base64CommentData = btoa(JSON.stringify(commentData))
     }
 
@@ -1228,11 +1374,28 @@ const postEncryptedComment = async (cardIdentifier) => {
       commentData,
       commentData.timestamp
     )
-    commentInput.value = ''
-    updateDisplayedEncryptedCommentCount(cardIdentifier, 1)
+    if (typeof clearBoardCommentEditState === "function") {
+      await clearBoardCommentEditState(cardIdentifier)
+    } else if (typeof clearBoardCommentEditor === "function") {
+      clearBoardCommentEditor(cardIdentifier)
+    }
+    if (fallbackCommentInput) {
+      fallbackCommentInput.value = ''
+    }
+    if (!isEditingThisComment) {
+      updateDisplayedEncryptedCommentCount(cardIdentifier, 1)
+    }
     const commentsSection = document.getElementById(`comments-section-${cardIdentifier}`)
     if (commentsSection && commentsSection.style.display === 'block') {
       await displayEncryptedComments(cardIdentifier)
+      if (
+        isEditingThisComment &&
+        typeof scrollBoardCommentIntoView === "function"
+      ) {
+        await scrollBoardCommentIntoView(cardIdentifier, commentIdentifier)
+      } else if (typeof scrollBoardCommentsToBottom === "function") {
+        await scrollBoardCommentsToBottom(cardIdentifier)
+      }
       const commentButton = document.getElementById(`comment-button-${cardIdentifier}`)
       if (commentButton) {
         commentButton.textContent = 'HIDE COMMENTS'
@@ -1286,10 +1449,45 @@ const displayEncryptedComments = async (cardIdentifier) => {
           const decryptedCommentData = await fetchEncryptedCommentData(comment)
           const timestampCheck = comment.updated || comment.created || 0
           const timestamp = await timestampToHumanReadableDate(timestampCheck)
-          // Kakashi Note: Encrypted comment fields are escaped before render to prevent markup injection in admin discussions.
           const safeCommenter = qEscapeHtml(decryptedCommentData.creator)
-          const safeCommentContent = qEscapeHtml(decryptedCommentData.content).replace(/\n/g, '<br>')
+          const commenterLevel =
+            typeof getBoardAccountLevel === "function"
+              ? await getBoardAccountLevel(decryptedCommentData.creator)
+              : null
+          const renderedCommentContent = qRenderBoardCommentHtml(
+            decryptedCommentData.content
+          )
           const safeTimestamp = qEscapeHtml(timestamp)
+          const commenterNameHtml =
+            typeof buildBoardAccountTriggerHtml === "function"
+              ? buildBoardAccountTriggerHtml({
+                  name: decryptedCommentData.creator,
+                  label: decryptedCommentData.creator,
+                  className: "comment-author-name-link",
+                  tagName: "button",
+                })
+              : `<span class="comment-author-name">${safeCommenter}</span>`
+          if (typeof rememberBoardCommentContent === "function") {
+            rememberBoardCommentContent(
+              comment.identifier,
+              decryptedCommentData.content || ""
+            )
+          }
+          const canEditComment =
+            typeof canCurrentUserEditPublishedComment === "function"
+              ? await canCurrentUserEditPublishedComment(
+                  decryptedCommentData.creator
+                )
+              : false
+          const editButtonHtml =
+            canEditComment &&
+            typeof buildBoardCommentEditButtonHtml === "function"
+              ? buildBoardCommentEditButtonHtml({
+                  cardIdentifier,
+                  commentIdentifier: comment.identifier,
+                  publisherName: decryptedCommentData.creator,
+                })
+              : ""
           const optimisticNotice = decryptedCommentData._optimisticPending
             ? `<p class="board-progress-muted" style="color: #ffd27d;"><i>Published locally. Waiting for QDN indexing.</i></p>`
             : ""
@@ -1297,29 +1495,67 @@ const displayEncryptedComments = async (cardIdentifier) => {
           const commenter = decryptedCommentData.creator
           const voterInfo = voterMap.get(commenter)
 
-          let commentColor = "transparent"
+          const commentClasses = ["comment"]
+          const commentStyles = []
           let adminBadge = ""
+          const levelBadgeHtml =
+            commenterLevel !== null && typeof commenterLevel !== "undefined"
+              ? `<span class="comment-level-badge" title="${qEscapeAttr(
+                  `Account level: ${commenterLevel}`
+                )}" aria-label="${qEscapeAttr(
+                  `Account level: ${commenterLevel}`
+                )}">L${qEscapeHtml(String(commenterLevel))}</span>`
+              : ""
 
           if (voterInfo) {
+            commentClasses.push("comment--voted")
             if (voterInfo.voterType === "Admin") {
-              // Admin-specific colors
-              commentColor = voterInfo.vote === "yes" ? "rgba(25, 175, 25, 0.6)" : "rgba(194, 39, 62, 0.6)" // Light green for yes, light red for no
-              const badgeColor = voterInfo.vote === "yes" ? "green" : "red"
-              adminBadge = `<span style="color: ${badgeColor}; font-weight: bold; margin-left: 0.5em;">(Admin)</span>`
+              commentClasses.push("comment--vote-admin")
+              const accentColor = voterInfo.vote === "yes"
+                ? "rgba(92, 196, 130, 0.95)"
+                : "rgba(221, 107, 107, 0.95)"
+              const accentSoft = voterInfo.vote === "yes"
+                ? "rgba(92, 196, 130, 0.2)"
+                : "rgba(221, 107, 107, 0.2)"
+              commentClasses.push(
+                voterInfo.vote === "yes"
+                  ? "comment--vote-yes"
+                  : "comment--vote-no"
+              )
+              commentStyles.push(`--comment-accent: ${accentColor}`)
+              commentStyles.push(`--comment-accent-soft: ${accentSoft}`)
+              adminBadge = `<span class="comment-role-badge comment-role-badge--admin">Admin</span>`
             } else {
-              // Non-admin colors
-              commentColor = voterInfo.vote === "yes" ? "rgba(0, 100, 0, 0.3)" : "rgba(100, 0, 0, 0.3)" // Darker green for yes, darker red for no
+              commentClasses.push("comment--vote-minter")
+              const accentColor = voterInfo.vote === "yes"
+                ? "rgba(92, 196, 130, 0.55)"
+                : "rgba(221, 107, 107, 0.55)"
+              const accentSoft = voterInfo.vote === "yes"
+                ? "rgba(92, 196, 130, 0.12)"
+                : "rgba(221, 107, 107, 0.12)"
+              commentClasses.push(
+                voterInfo.vote === "yes"
+                  ? "comment--vote-yes"
+                  : "comment--vote-no"
+              )
+              commentStyles.push(`--comment-accent: ${accentColor}`)
+              commentStyles.push(`--comment-accent-soft: ${accentSoft}`)
             }
           }
 
+          const commentStyleAttr = commentStyles.length
+            ? ` style="${commentStyles.join("; ")}"`
+            : ""
           return `
-            <div class="comment" style="border: 1px solid gray; margin: 1vh 0; padding: 1vh; background: ${commentColor};">
-              <p>
-                <strong><u>${safeCommenter}</u></strong>
+            <div class="${commentClasses.join(" ")}"${commentStyleAttr} data-comment-identifier="${qEscapeAttr(comment.identifier)}">
+              ${editButtonHtml}
+              <p class="comment-meta">
+                ${commenterNameHtml}
+                ${levelBadgeHtml}
                 ${adminBadge}
               </p>
-              <p>${safeCommentContent}</p>
-              <p><i>${safeTimestamp}</i></p>
+              <div class="comment-body ql-editor">${renderedCommentContent}</div>
+              <p class="comment-timestamp"><i>${safeTimestamp}</i></p>
               ${optimisticNotice}
             </div>
           `
@@ -1354,8 +1590,11 @@ const toggleEncryptedComments = async (cardIdentifier) => {
   if (isHidden) {
     // Show comments
     commentButton.textContent = "LOADING..."
-    await displayEncryptedComments(cardIdentifier)
     commentsSection.style.display = 'block'
+    if (typeof ensureBoardCommentEditor === "function") {
+      ensureBoardCommentEditor(cardIdentifier, "Write a comment...")
+    }
+    await displayEncryptedComments(cardIdentifier)
     // Change the button text to 'HIDE COMMENTS'
     commentButton.textContent = 'HIDE COMMENTS'
   } else {
@@ -1367,10 +1606,10 @@ const toggleEncryptedComments = async (cardIdentifier) => {
 
 const createLinkDisplayModal = async () => {
   const modalHTML = `
-    <div id="links-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 1000;">
-      <div style="position: relative; margin: 10% auto; width: 95%; height: 80%; background: white; border-radius: 10px; overflow: hidden;">
+    <div id="links-modal" style="display: none; position: fixed; inset: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.72); z-index: 1000;">
+      <div style="position: relative; margin: 4vh auto; width: 90vw; max-width: 92rem; height: 88vh; max-height: 92vh; background: rgba(5, 10, 14, 0.94); border: 1px solid rgba(157, 193, 196, 0.28); border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);">
         <iframe id="links-modalContent" src="" style="width: 100%; height: 100%; border: none;"></iframe>
-        <button onclick="closeLinkDisplayModal()" style="position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 10px; border-radius: 5px;">Close</button>
+        <button onclick="closeLinkDisplayModal()" style="position: absolute; top: 0.75rem; right: 0.75rem; background: rgba(8, 14, 18, 0.86); color: white; border: 1px solid rgba(157, 193, 196, 0.38); padding: 0.35rem 0.75rem; border-radius: 8px;">Close</button>
       </div>
     </div>
   `
@@ -1626,10 +1865,46 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
   const safeMinterName = qEscapeHtml(minterName)
   const safeCreator = qEscapeHtml(creator)
   const safeHeader = qEscapeHtml(header)
-  const safeContent = qEscapeHtml(content).replace(/\n/g, '<br>')
+  const renderedContent = qRenderRichContentHtml(content)
   const safeFormattedDate = qEscapeHtml(formattedDate)
+  adminBoardDecryptedCardByIdentifier.set(cardIdentifier, cardData)
   const showKickedBanned = document.getElementById('admin-show-kicked-banned-checkbox')?.checked ?? false
   const showHiddenAdminCards = document.getElementById('admin-show-hidden-checkbox')?.checked ?? false
+  const creatorLinkHtml =
+    typeof buildBoardAccountTriggerHtml === "function"
+      ? buildBoardAccountTriggerHtml({
+          name: creator || "Unknown",
+          label: creator || "Unknown",
+          className: "card-account-trigger card-account-trigger--heading",
+          tagName: "button",
+        })
+      : safeCreator
+  const minterNameLinkHtml =
+    typeof buildBoardAccountTriggerHtml === "function"
+      ? buildBoardAccountTriggerHtml({
+          name: minterName || "Unknown",
+          address: minterAddress || "",
+          label: minterName || "Unknown",
+          className: "card-account-trigger card-account-trigger--heading",
+          tagName: "button",
+        })
+      : safeMinterName
+  const canEditCard =
+    String(creator || "").trim().toLowerCase() ===
+    String(userState?.accountName || "").trim().toLowerCase()
+  const editButtonHtml = canEditCard
+    ? `
+      <button
+        type="button"
+        class="card-edit-button"
+        title="Edit card"
+        aria-label="Edit card"
+        onclick="openAdminBoardCardEditor('${qEscapeAttr(cardIdentifier)}')"
+      >
+        <span class="mobi-mbri-edit-2" aria-hidden="true"></span>
+      </button>
+    `
+    : ""
 
   const isUndefinedUser = (minterName === 'undefined' || minterName === 'null')
 
@@ -1662,14 +1937,20 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
   }
  
   let cardColorCode = showTopic ? '#0e1b15' : '#151f28'
+  const userVoteStateClass =
+    userVote === 0
+      ? "card--user-vote-yes"
+      : userVote === 1
+        ? "card--user-vote-no"
+        : ""
 
   const minterOrTopicHtml = ((showTopic) || (isUndefinedUser)) ? `
     <div class="support-header"><h5> REGARDING (Topic / Address): </h5></div>
-    <h3>${safeMinterName}` :
+    <h3>${minterNameLinkHtml}` :
     `
     <div class="support-header"><h5> REGARDING (Name): </h5></div>
     ${minterAvatar}
-    <h3>${safeMinterName}`
+    <h3>${minterNameLinkHtml}`
 
   const minterGroupMembers = sharedBoardData?.minterGroupMembers || await fetchMinterGroupMembers()
   const minterAdmins = sharedBoardData?.minterAdmins || await fetchMinterGroupAdmins()
@@ -1706,12 +1987,6 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
     adjustmentText = addressInfo.blocksMintedAdjustment == 0 ? '' : '<p>(has Blocks Adjustment)<p>'
     const removeActionsHtml = verifiedAddress ? await checkAndDisplayRemoveActions(adminYes, verifiedAddress, cardIdentifier, true) :  await checkAndDisplayRemoveActions(adminYes, verifiedName, cardIdentifier)
     showRemoveHtml = removeActionsHtml
-
-    if (userVote === 0) {
-      cardColorCode = "rgba(1, 65, 39, 0.41)"; // or any green you want
-    } else if (userVote === 1) {
-      cardColorCode = "rgba(55, 12, 12, 0.61)"; // or any red you want
-    }
 
     const confirmedKick = finalKickTxs.some(
       (tx) => tx.groupId === 694 && tx.member === accountAddress
@@ -1761,17 +2036,18 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
   }
 
   return `
-  <div class="admin-card" style="background-color: ${cardColorCode}">
+  <div class="admin-card ${userVoteStateClass}" style="background-color: ${cardColorCode}">
+    ${editButtonHtml}
     <div class="minter-card-header">
       <h2 class="support-header"> Created By: </h2>
       ${creatorAvatar}
-      <h2>${safeCreator}</h2>
+      <h2>${creatorLinkHtml}</h2>
       ${minterOrTopicHtml}${levelText}
       <p>${safeHeader}</p>
       ${penaltyText}${adjustmentText}${altText}
     </div>
-    <div class="info">
-      ${safeContent}
+    <div class="info board-rich-content ql-editor">
+      ${renderedContent}
     </div>
     <div class="support-header"><h5>LINKS</h5></div>
     <div class="info-links">
@@ -1805,8 +2081,12 @@ const createEncryptedCardHTML = async (cardData, pollResults, cardIdentifier, co
     </div>
     <div id="comments-section-${cardIdentifier}" class="comments-section" style="display: none; margin-top: 20px;">
       <div id="comments-container-${cardIdentifier}" class="comments-container"></div>
-      <textarea id="new-comment-${cardIdentifier}" placeholder="Input your comment..." style="width: 100%; margin-top: 10px;"></textarea>
-      <button onclick="postEncryptedComment('${cardIdentifier}')">Post Comment</button>
+      ${typeof getBoardCommentComposerHtml === "function"
+        ? getBoardCommentComposerHtml(cardIdentifier)
+        : `<textarea id="new-comment-${cardIdentifier}" placeholder="Input your comment..." style="width: 100%; margin-top: 10px;"></textarea>`}
+      ${typeof getBoardCommentActionBarHtml === "function"
+        ? getBoardCommentActionBarHtml(cardIdentifier, "postEncryptedComment")
+        : `<button onclick="postEncryptedComment('${cardIdentifier}')">Post Comment</button>`}
     </div>
     <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${safeCreator} - ${safeFormattedDate}</p>
   </div>

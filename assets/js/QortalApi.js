@@ -6,6 +6,18 @@ let baseUrl = ""
 let isOutsideOfUiDevelopment = false
 let nullAddress = "QdSnUy6sUiEnaN87dWmE92g1uQjrvPgrWG"
 
+// Kakashi Note: Silence routine console chatter in normal app use.
+// Uncaught runtime errors can still surface in the browser devtools.
+const qSilenceConsole = true
+if (qSilenceConsole && typeof console !== "undefined") {
+  const noop = () => {}
+  ;["log", "warn", "info", "debug"].forEach((method) => {
+    if (typeof console[method] === "function") {
+      console[method] = noop
+    }
+  })
+}
+
 // Caching to improve performance
 const nameInfoCache = new Map() // name -> nameInfo
 const addressInfoCache = new Map() // address -> addressInfo

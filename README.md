@@ -6,9 +6,9 @@ As of Feb 27 2025 Q-Mintership-Alpha is still the published and utilized version
 
 #### Q-Mintership's 'MinterBoard'
 
-The MinterBoard of Q-Mintership, is the primary location for users to publish 'cards' with information about themselves, links to things they have published on QDN, etc... and obtain minting rights from the Minter Admins. 
+The MinterBoard of Q-Mintership, is the primary location for users to publish 'cards' with information about themselves, links to things they have published on QDN, etc... and obtain minting privileges from the Minter Admins. 
 
-- Cards are created by any non-minter (either previous minter no longer in the group, or new accounts without minting rights). 
+- Cards are created by any non-minter (either previous minter no longer in the group, or new accounts without minting privileges). 
 - Existing community members, existing minters, and Minter Admins, can vote/comment on the cards.
 - Once a card has obtained the minimum required number of admin votes (40% of the Minter Admin count), the card will then display additional features to those that have the rights to see them. (Minter Admins, and 'Forum Admins', however 'Forum Admins' cannot actually make use of the functionality, they are only able to view it for development purposes.) 
 - The Minter Admins then initiate a PENDING GROUP_INVITE transaction.

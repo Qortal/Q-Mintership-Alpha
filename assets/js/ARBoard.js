@@ -5,7 +5,31 @@ let isTest = false
 let isAddRemoveBoard = true
 let otherPublisher = false
 const addRemoveIdentifierPrefix = "QM-AR-card"
+const AR_TX_CACHE_TTL_MS = 30000
+let arTxCache = {
+  timestamp: 0,
+  data: null
+}
+
+const getAllARTxDataCached = async (force = false) => {
+  const now = Date.now()
+  const isStale = (now - arTxCache.timestamp) > AR_TX_CACHE_TTL_MS
+  if (force || !arTxCache.data || isStale) {
+    arTxCache.data = await fetchAllARTxData()
+    arTxCache.timestamp = now
+  }
+  return arTxCache.data
+}
+
 const loadAddRemoveAdminPage = async () => {
+    // Kakashi Note: Clear other board scroll listeners before loading this board to prevent duplicate lazy-load callbacks.
+    if (typeof detachAdminBoardInfiniteScroll === "function") {
+        detachAdminBoardInfiniteScroll()
+    }
+    if (typeof detachMinterBoardInfiniteScroll === "function") {
+        detachMinterBoardInfiniteScroll()
+    }
+
     console.log("Loading Add/Remove Admin page...")
     const bodyChildren = document.body.children
 
@@ -96,9 +120,10 @@ const loadAddRemoveAdminPage = async () => {
 
     document.getElementById("refresh-cards-button").addEventListener("click", async () => {
         const cardsContainer = document.getElementById("cards-container")
-        cardsContainer.innerHTML = "<p>Refreshing cards...</p>"
+        cardsContainer.innerHTML = getBoardLoadingHTML("Refreshing cards...")
         await initializeCachedGroups()
-        await loadCards(addRemoveIdentifierPrefix)
+        await getAllARTxDataCached(true)
+        await loadCards(addRemoveIdentifierPrefix, true)
     })
 
     document.getElementById("cancel-publish-button").addEventListener("click", async () => {
@@ -132,9 +157,9 @@ const loadAddRemoveAdminPage = async () => {
         await publishARCard(addRemoveIdentifierPrefix)
     })
     await featureTriggerCheck()
+    await getAllARTxDataCached(true)
     await loadCards(addRemoveIdentifierPrefix)
     await displayExistingMinterAdmins()
-    await fetchAllARTxData()
 }
 
 const toggleProposeButton = () => {
@@ -554,7 +579,7 @@ const publishARCard = async (cardIdentifierPrefix) => {
       document.getElementById("promotion-form-container").style.display = "none"
     //   document.getElementById("cards-container").style.display = "flex"
 
-      await loadCards(addRemoveIdentifierPrefix)
+      await loadCards(addRemoveIdentifierPrefix, true)
   
     } catch (error) {
   
@@ -567,7 +592,9 @@ const checkAndDisplayActions = async (adminYes, name, cardIdentifier) => {
     const latestBlockInfo = await getLatestBlockInfo()
     const isBlockPassed = latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT 
     let minAdminCount 
-    const minterAdmins = await fetchMinterGroupAdmins()
+    const minterAdmins = (cachedMinterAdmins && cachedMinterAdmins.length > 0)
+      ? cachedMinterAdmins
+      : await fetchMinterGroupAdmins()
   
     if ((minterAdmins) && (minterAdmins.length === 1)){
       console.warn(`simply a double-check that there is only one MINTER group admin, in which case the group hasn't been transferred to null...keeping default minAdminCount of: ${minAdminCount}`)
@@ -742,6 +769,10 @@ const fallbackMinterCheck = async (minterName, minterGroupMembers, minterAdmins)
       console.warn("No minterGroupMembers array was passed in fallback check!")
       return false
     }
+    if (!minterAdmins) {
+      console.warn("No minterAdmins array was passed in fallback check!")
+      return false
+    }
     const minterGroupAddresses = minterGroupMembers.map(m => m.member)
     const adminAddresses = minterAdmins.map(m => m.member)
     const minterAcctInfo = await getNameInfo(minterName)
@@ -764,11 +795,17 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
     const formattedDate = new Date(timestamp).toLocaleString()
     const minterAvatar = await getMinterAvatar(minterName)
     const creatorAvatar = await getMinterAvatar(creator)
+    // Kakashi Note: Render links with escaped data attributes and safe modal handlers for untrusted card content.
     const linksHTML = links.map((link, index) => `
-      <button onclick="openLinkDisplayModal('${link}')">
-        ${`Link ${index + 1} - ${link}`}
+      <button data-link="${qEscapeAttr(link)}" onclick="openLinkDisplayModalFromButton(this)">
+        ${qEscapeHtml(`Link ${index + 1} - ${link}`)}
       </button>
     `).join("")
+    const safeMinterName = qEscapeHtml(minterName)
+    const safeCreator = qEscapeHtml(creator)
+    const safeHeader = qEscapeHtml(header)
+    const safeContent = qEscapeHtml(content).replace(/\n/g, '<br>')
+    const safeFormattedDate = qEscapeHtml(formattedDate)
     // Adding fix for accidental code in 1.04b
     let publishedMinterAddress
     if (!minterAddress || minterAddress ==='priorToAddition'){
@@ -778,8 +815,12 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
         publishedMinterAddress = minterAddress
     }
 
-    const minterGroupMembers = await fetchMinterGroupMembers()
-    const minterAdmins = await fetchMinterGroupAdmins()
+    const minterGroupMembers = (cachedMinterGroup && cachedMinterGroup.length > 0)
+      ? cachedMinterGroup
+      : await fetchMinterGroupMembers()
+    const minterAdmins = (cachedMinterAdmins && cachedMinterAdmins.length > 0)
+      ? cachedMinterAdmins
+      : await fetchMinterGroupAdmins()
 
     let showPromotionCard = false
     // showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
@@ -796,16 +837,16 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
       } else {
         // Unexpected string => fallback
         console.warn(`Unexpected string in promotionCard="${promotionCard}"`)
-        showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers)
+        showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
       }
     } else if (promotionCard == null) {
       // null or undefined => fallback check
       console.warn(`No promotionCard field in card data, doing manual check...`)
-      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers)
+      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
     } else {
       // If it’s an object or something else weird => fallback
       console.warn(`promotionCard has unexpected type, fallback...`)
-      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers)
+      showPromotionCard = await fallbackMinterCheck(minterName, minterGroupMembers, minterAdmins)
     }
 
     let cardColorCode = (showPromotionCard) ? 'rgb(17, 44, 46)' : 'rgb(57, 11, 13)'
@@ -813,11 +854,11 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
     const promotionDemotionHtml = (showPromotionCard) ? `
       <div class="support-header"><h5> REGARDING (Promotion): </h5></div>
       ${minterAvatar}
-      <h3>${minterName}</h3>` :
+      <h3>${safeMinterName}</h3>` :
       `
       <div class="support-header"><h5> REGARDING (Demotion): </h5></div>
       ${minterAvatar}
-      <h3>${minterName}</h3>`
+      <h3>${safeMinterName}</h3>`
   
     if (!promotionDemotionHtml){
         console.warn(`promotionDemotionHtml missing!`)
@@ -842,7 +883,7 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
       const actionsHtmlCheck = await checkAndDisplayActions(adminYes, verifiedName, cardIdentifier)
       actionsHtml = actionsHtmlCheck
       
-      const { finalAddTxs, pendingAddTxs, expiredAddTxs, finalRemTxs, pendingRemTxs, expiredRemTxs } = await fetchAllARTxData()
+      const { finalAddTxs, pendingAddTxs, expiredAddTxs, finalRemTxs, pendingRemTxs, expiredRemTxs } = await getAllARTxDataCached()
 
       const userConfirmedAdd = finalAddTxs.some(
         (tx) => tx.groupId === 694 && tx.member === accountAddress
@@ -943,7 +984,8 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
     } else if ( verifiedName && illegalDuplicate) {
         console.warn(`illegalDuplicate detected (this card was somehow allowed to be published twice, keeping newest as active to prevent issues with old cards and updates, but displaying without actions...)`)
         cardColorCode = 'rgb(82, 81, 81)'
-        altText  = `<h4 style="color:rgb(21, 30, 39); margin-bottom: 0.5em;">DUPLICATE (diplayed for data only)</h4>`
+        // Kakashi Note: Typo fixed "DUPLICATE (diplayed for data only)"
+        altText  = `<h4 style="color:rgb(21, 30, 39); margin-bottom: 0.5em;">DUPLICATE (displayed for data only)</h4>`
         actionsHtml = ''
     } else {
       console.warn(`name could not be validated, not setting actionsHtml`)
@@ -955,13 +997,13 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
       <div class="minter-card-header">
         <h2 class="support-header"> Created By: </h2>
         ${creatorAvatar}
-        <h2>${creator}</h2>
+        <h2>${safeCreator}</h2>
         ${promotionDemotionHtml}
-        <p>${header}</p>
+        <p>${safeHeader}</p>
         ${altText}
       </div>
       <div class="info">
-        ${content}
+        ${safeContent}
       </div>
       <div class="support-header"><h5>LINKS</h5></div>
       <div class="info-links">
@@ -989,7 +1031,7 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
             <span class="total-no">Weight: ${totalNoWeight}</span>
         </div>
       </div>
-      <div class="support-header"><h5>ACTIONS FOR</h5><h5 style="color: #ffae42;">${minterName}</h5>
+      <div class="support-header"><h5>ACTIONS FOR</h5><h5 style="color: #ffae42;">${safeMinterName}</h5>
       <p style="color: #c7c7c7; font-size: .65rem; margin-top: 1vh">(click COMMENTS button to open/close card comments)</p>
       </div>
       <div class="actions">
@@ -1004,7 +1046,7 @@ const createARCardHTML = async (cardData, pollResults, cardIdentifier, commentCo
         <textarea id="new-comment-${cardIdentifier}" placeholder="Input your comment..." style="width: 100%; margin-top: 10px;"></textarea>
         <button onclick="postComment('${cardIdentifier}')">Post Comment</button>
       </div>
-      <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${creator} - ${formattedDate}</p>
+      <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${safeCreator} - ${safeFormattedDate}</p>
     </div>
     `
 }

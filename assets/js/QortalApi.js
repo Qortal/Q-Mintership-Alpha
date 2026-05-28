@@ -264,6 +264,41 @@ const getAddressInfoCached = async (address) => {
   return result
 }
 
+const getAddressBalance = async (address) => {
+  const qortalAddressPattern = /^Q[A-Za-z0-9]{33}$/
+  const normalizedAddress = String(address || "").trim()
+
+  if (!qortalAddressPattern.test(normalizedAddress)) {
+    console.warn(
+      `Not a valid Qortal address format for balance lookup: ${normalizedAddress}`
+    )
+    return null
+  }
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/addresses/balance/${normalizedAddress}`,
+      {
+        headers: { Accept: "text/plain" },
+        method: "GET",
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(
+        `Failed to fetch account balance: HTTP ${response.status}, ${errorText}`
+      )
+    }
+
+    const balanceText = String(await response.text()).trim()
+    return balanceText || null
+  } catch (error) {
+    console.error("Error fetching account balance:", error)
+    return null
+  }
+}
+
 const getAddressInfo = async (address) => {
   const qortalAddressPattern = /^Q[A-Za-z0-9]{33}$/ // Q + 33 almum = 34 total length
 
@@ -1491,11 +1526,14 @@ const getPollPublisherPublicKey = async (pollName) => {
 
 const fetchPollResultsCached = async (pollName) => {
   if (pollResultsCache.has(pollName)) {
-    return pollResultsCache.get(pollName)
+    return await pollResultsCache.get(pollName)
   }
-  const result = await fetchPollResults(pollName)
-  pollResultsCache.set(pollName, result)
-  return result
+  const pollResultsPromise = fetchPollResults(pollName).then((result) => {
+    pollResultsCache.set(pollName, Promise.resolve(result))
+    return result
+  })
+  pollResultsCache.set(pollName, pollResultsPromise)
+  return await pollResultsPromise
 }
 
 const fetchPollResults = async (pollName) => {
@@ -2065,6 +2103,7 @@ const searchTransactions = async ({
   startBlock = 0,
   blockLimit = 0,
   txGroupId = 0,
+  silent = false,
 } = {}) => {
   try {
     // 1) Build the query string
@@ -2115,7 +2154,9 @@ const searchTransactions = async ({
 
     const queryString = queryParams.join("&")
     const url = `${baseUrl}/transactions/search?${queryString}`
-    console.warn(`calling the following for search transactions: ${url}`)
+    if (!silent) {
+      console.warn(`calling the following for search transactions: ${url}`)
+    }
 
     // 2) Fetch
     const response = await fetch(url, {
@@ -2144,7 +2185,9 @@ const searchTransactions = async ({
 
     return txArray // e.g. [{ type, timestamp, reference, ... }, ...]
   } catch (error) {
-    console.error("Error in searchTransactions:", error)
+    if (!silent) {
+      console.error("Error in searchTransactions:", error)
+    }
     throw error
   }
 }

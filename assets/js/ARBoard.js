@@ -9,6 +9,33 @@ let arTxCache = {
   timestamp: 0,
   data: null,
 }
+const adminDirectoryState = {
+  loaded: false,
+  activeCount: 0,
+  totalCount: 0,
+  loading: false,
+}
+
+const AR_CARD_THEMES = {
+  promotion: {
+    background: "rgba(11, 41, 44, 0.97)",
+    accent: "rgba(134, 218, 222, 0.96)",
+    stateAccent: "rgba(115, 208, 195, 0.72)",
+    border: "rgba(115, 208, 195, 0.24)",
+  },
+  demotion: {
+    background: "rgba(44, 12, 15, 0.97)",
+    accent: "rgba(255, 182, 184, 0.96)",
+    stateAccent: "rgba(215, 101, 101, 0.72)",
+    border: "rgba(215, 101, 101, 0.24)",
+  },
+  duplicate: {
+    background: "rgba(32, 34, 37, 0.97)",
+    accent: "rgba(190, 198, 203, 0.94)",
+    stateAccent: "rgba(174, 181, 187, 0.72)",
+    border: "rgba(174, 181, 187, 0.24)",
+  },
+}
 
 const getAllARTxDataCached = async (force = false) => {
   const now = Date.now()
@@ -43,6 +70,10 @@ const loadAddRemoveAdminPage = async () => {
   const mainContainer = document.createElement("div")
   mainContainer.className = "add-remove-admin-main"
   mainContainer.style = "padding: 20px; text-align: center;"
+  adminDirectoryState.loaded = false
+  adminDirectoryState.activeCount = 0
+  adminDirectoryState.totalCount = 0
+  adminDirectoryState.loading = false
   mainContainer.innerHTML = `
         <h1 style="color: lightblue;">Minter Admin Management</h1>
         <p style="font-size:0.95rem; color: white;">
@@ -50,9 +81,19 @@ const loadAddRemoveAdminPage = async () => {
             or demotion of an existing admin back to a normal minter.
         </p>
     
-        <div id="admin-table-section" class="admin-table-section" style="margin-top: 2em;">
-            <h3 style="color:rgb(212, 212, 212);">Existing Minter Admins</h3>
-            <div id="admin-list-container" style="margin: 1em auto; max-width: 600px;"></div>
+        <div id="admin-table-section" class="admin-table-section admin-directory-panel" style="margin-top: 2em;">
+            <div class="admin-directory-panel__header">
+                <div class="admin-directory-panel__copy">
+                    <h3 style="color:rgb(212, 212, 212); margin-bottom: 0.25rem;">Current Minter Admins</h3>
+                    <p id="admin-directory-summary" class="admin-directory-summary">Loading admin directory...</p>
+                </div>
+                <button id="toggle-admin-list-button" class="publish-card-button admin-directory-toggle-button" type="button">
+                    Show Current Minter Admins
+                </button>
+            </div>
+            <div id="admin-list-wrapper" class="admin-directory-body" hidden>
+                <div id="admin-list-container" style="margin: 1em auto; max-width: 900px;"></div>
+            </div>
         </div>
 
         <div id="promotion-section" class="promotion-section" style="margin-top: 3em;">
@@ -157,6 +198,13 @@ const loadAddRemoveAdminPage = async () => {
       linksContainer.appendChild(newLinkInput)
     })
 
+  const toggleAdminListButton = document.getElementById("toggle-admin-list-button")
+  if (toggleAdminListButton) {
+    toggleAdminListButton.addEventListener("click", async () => {
+      await toggleAdminDirectoryVisibility()
+    })
+  }
+
   const timeRangeSelectCheckbox = document.getElementById("time-range-select")
   if (timeRangeSelectCheckbox) {
     timeRangeSelectCheckbox.addEventListener("change", async (event) => {
@@ -173,7 +221,7 @@ const loadAddRemoveAdminPage = async () => {
   await featureTriggerCheck()
   await getAllARTxDataCached(true)
   await loadCards(addRemoveIdentifierPrefix)
-  await displayExistingMinterAdmins()
+  void displayExistingMinterAdmins()
 }
 
 const toggleProposeButton = () => {
@@ -186,32 +234,45 @@ const fetchAllARTxData = async () => {
   const addAdmTx = "ADD_GROUP_ADMIN"
   const remAdmTx = "REMOVE_GROUP_ADMIN"
 
-  const allAddTxs = await searchTransactions({
-    txTypes: [addAdmTx],
-    confirmationStatus: "CONFIRMED",
-    limit: 0,
-    reverse: true,
-    offset: 0,
-    startBlock: 1990000,
-    blockLimit: 0,
-    txGroupId: 694,
-  })
+  let allAddTxs = []
+  let allRemTxs = []
 
-  const allRemTxs = await searchTransactions({
-    txTypes: [remAdmTx],
-    confirmationStatus: "CONFIRMED",
-    limit: 0,
-    reverse: true,
-    offset: 0,
-    startBlock: 1990000,
-    blockLimit: 0,
-    txGroupId: 694,
-  })
+  try {
+    allAddTxs = await searchTransactions({
+      txTypes: [addAdmTx],
+      confirmationStatus: "CONFIRMED",
+      limit: 0,
+      reverse: true,
+      offset: 0,
+      startBlock: 1990000,
+      blockLimit: 0,
+      txGroupId: 694,
+      silent: true,
+    })
+  } catch (error) {
+    console.warn("Unable to fetch add-admin transactions:", error)
+  }
+
+  try {
+    allRemTxs = await searchTransactions({
+      txTypes: [remAdmTx],
+      confirmationStatus: "CONFIRMED",
+      limit: 0,
+      reverse: true,
+      offset: 0,
+      startBlock: 1990000,
+      blockLimit: 0,
+      txGroupId: 694,
+      silent: true,
+    })
+  } catch (error) {
+    console.warn("Unable to fetch remove-admin transactions:", error)
+  }
 
   const { finalAddTxs, pendingAddTxs, expiredAddTxs } =
-    partitionAddTransactions(allAddTxs)
+    partitionAddTransactions(Array.isArray(allAddTxs) ? allAddTxs : [])
   const { finalRemTxs, pendingRemTxs, expiredRemTxs } =
-    partitionRemoveTransactions(allRemTxs)
+    partitionRemoveTransactions(Array.isArray(allRemTxs) ? allRemTxs : [])
 
   // We are going to keep all transactions in order to filter more accurately for display purposes.
   console.log("Final addAdminTxs:", finalAddTxs)
@@ -269,15 +330,29 @@ const partitionRemoveTransactions = (rawTransactions) => {
 
 const displayExistingMinterAdmins = async () => {
   const adminListContainer = document.getElementById("admin-list-container")
+  const adminListWrapper = document.getElementById("admin-list-wrapper")
+  const adminSummary = document.getElementById("admin-directory-summary")
+  const toggleButton = document.getElementById("toggle-admin-list-button")
+  if (!adminListContainer) return
+
+  adminDirectoryState.loading = true
   adminListContainer.innerHTML =
     "<p style='color: #999; font-size: 1.1rem;'>Loading existing admins...</p>"
+  if (adminSummary) {
+    adminSummary.textContent = "Loading admin directory..."
+  }
 
   try {
     // 1) Fetch addresses
     const admins = await fetchMinterGroupAdmins()
-    minterAdminAddresses = admins.map((m) => m.member)
+    const adminEntries = Array.isArray(admins) ? admins : []
+    const activeAdmins = getEffectiveMinterAdminMembers(admins)
+    minterAdminAddresses = activeAdmins.map((m) => m.member)
+    adminDirectoryState.loaded = true
+    adminDirectoryState.activeCount = activeAdmins.length
+    adminDirectoryState.totalCount = adminEntries.length
     let rowsHtml = ""
-    for (const adminAddr of admins) {
+    for (const adminAddr of adminEntries) {
       if (adminAddr.member === nullAddress) {
         // Display a "NULL ACCOUNT" row
         rowsHtml += `
@@ -337,11 +412,44 @@ const displayExistingMinterAdmins = async () => {
             </table>
         `
     adminListContainer.innerHTML = tableHtml
+    if (adminSummary) {
+      adminSummary.textContent = `${activeAdmins.length} active admin${
+        activeAdmins.length === 1 ? "" : "s"
+      } found. Null account entries are excluded from the count.`
+    }
+    if (toggleButton) {
+      const isVisible = adminListWrapper ? !adminListWrapper.hidden : false
+      toggleButton.textContent = `${
+        isVisible ? "Hide" : "Show"
+      } Current Minter Admins (${activeAdmins.length})`
+    }
   } catch (err) {
     console.error("Error fetching minter admins:", err)
     adminListContainer.innerHTML =
       "<p style='color: red;'>Failed to load admins.</p>"
+    if (adminSummary) {
+      adminSummary.textContent =
+        "Failed to load admin directory right now. You can try again."
+    }
   }
+  adminDirectoryState.loading = false
+}
+
+const toggleAdminDirectoryVisibility = async () => {
+  const adminListWrapper = document.getElementById("admin-list-wrapper")
+  const toggleButton = document.getElementById("toggle-admin-list-button")
+  if (!adminListWrapper || !toggleButton) return
+
+  const shouldShow = adminListWrapper.hidden
+  adminListWrapper.hidden = !shouldShow
+
+  if (shouldShow && !adminDirectoryState.loaded && !adminDirectoryState.loading) {
+    await displayExistingMinterAdmins()
+  }
+
+  toggleButton.textContent = `${shouldShow ? "Hide" : "Show"} Current Minter Admins${
+    adminDirectoryState.loaded ? ` (${adminDirectoryState.activeCount})` : ""
+  }`
 }
 
 const handleProposeDemotionWrapper = (adminName, adminAddress) => {
@@ -640,25 +748,31 @@ const checkAndDisplayActions = async (adminYes, name, cardIdentifier) => {
     latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
   let minAdminCount
   const minterAdmins =
-    cachedMinterAdmins && cachedMinterAdmins.length > 0
+    getEffectiveMinterAdminCount(cachedMinterAdmins) > 0
       ? cachedMinterAdmins
       : await fetchMinterGroupAdmins()
+  const effectiveMinterAdmins = getEffectiveMinterAdminMembers(minterAdmins)
 
-  if (minterAdmins && minterAdmins.length === 1) {
+  if (effectiveMinterAdmins && effectiveMinterAdmins.length === 1) {
     console.warn(
       `simply a double-check that there is only one MINTER group admin, in which case the group hasn't been transferred to null...keeping default minAdminCount of: ${minAdminCount}`
     )
     minAdminCount = 9
-  } else if (minterAdmins && minterAdmins.length > 1 && isBlockPassed) {
-    const totalAdmins = minterAdmins.length
+  } else if (effectiveMinterAdmins && effectiveMinterAdmins.length > 1 && isBlockPassed) {
+    const totalAdmins = effectiveMinterAdmins.length
     const fortyPercent = totalAdmins * 0.4
     minAdminCount = Math.ceil(fortyPercent)
     console.warn(
       `this is another check to ensure minterAdmin group has more than 1 admin. IF so we will calculate the 40% needed for GROUP_APPROVAL, that number is: ${minAdminCount}`
     )
   }
-  const addressInfo = await getNameInfo(name)
-  const address = addressInfo.owner
+  const addressInfo = await getNameInfo(name).catch(() => null)
+  const address = addressInfo?.owner || ""
+
+  if (!address) {
+    console.warn(`Unable to resolve address for ${name}, skipping admin actions`)
+    return null
+  }
 
   if (isBlockPassed) {
     console.warn(
@@ -919,11 +1033,12 @@ const createARCardHTML = async (
     poll,
     promotionCard,
   } = cardData
-  const formattedDate = new Date(timestamp).toLocaleString()
-  const minterAvatar = await getMinterAvatar(minterName)
-  const creatorAvatar = await getMinterAvatar(creator)
+  const formattedDate = cardUpdatedTime
+    ? new Date(cardUpdatedTime).toLocaleString()
+    : new Date(timestamp).toLocaleString()
+  const linksArray = Array.isArray(links) ? links : []
   // Kakashi Note: Render links with escaped data attributes and safe modal handlers for untrusted card content.
-  const linksHTML = links
+  const linksHTML = linksArray
     .map(
       (link, index) => `
       <button data-link="${qEscapeAttr(
@@ -934,16 +1049,13 @@ const createARCardHTML = async (
     `
     )
     .join("")
-  const safeMinterName = qEscapeHtml(minterName)
-  const safeCreator = qEscapeHtml(creator)
-  const safeHeader = qEscapeHtml(header)
-  const safeContent = qEscapeHtml(content).replace(/\n/g, "<br>")
+  const safeMinterName = qEscapeHtml(minterName || "Unknown")
+  const safeHeader = qEscapeHtml(header || "")
+  const renderedContent = qRenderRichContentHtml(content || "")
   const safeFormattedDate = qEscapeHtml(formattedDate)
-  // Adding fix for accidental code in 1.04b
-  let publishedMinterAddress
-  if (!minterAddress || minterAddress === "priorToAddition") {
-    publishedMinterAddress = ""
-  } else if (minterAddress) {
+  // Keep the target address if it was published, otherwise resolve it from the name later.
+  let publishedMinterAddress = ""
+  if (minterAddress && minterAddress !== "priorToAddition") {
     console.log(`minter address found in card info: ${minterAddress}`)
     publishedMinterAddress = minterAddress
   }
@@ -953,7 +1065,7 @@ const createARCardHTML = async (
       ? cachedMinterGroup
       : await fetchMinterGroupMembers()
   const minterAdmins =
-    cachedMinterAdmins && cachedMinterAdmins.length > 0
+    getEffectiveMinterAdminCount(cachedMinterAdmins) > 0
       ? cachedMinterAdmins
       : await fetchMinterGroupAdmins()
 
@@ -993,24 +1105,65 @@ const createARCardHTML = async (
       minterName,
       minterGroupMembers,
       minterAdmins
-    )
+      )
   }
 
-  let cardColorCode = showPromotionCard ? "rgb(17, 44, 46)" : "rgb(57, 11, 13)"
-
-  const promotionDemotionHtml = showPromotionCard
-    ? `
-      <div class="support-header"><h5> REGARDING (Promotion): </h5></div>
-      ${minterAvatar}
-      <h3>${safeMinterName}</h3>`
-    : `
-      <div class="support-header"><h5> REGARDING (Demotion): </h5></div>
-      ${minterAvatar}
-      <h3>${safeMinterName}</h3>`
-
-  if (!promotionDemotionHtml) {
-    console.warn(`promotionDemotionHtml missing!`)
-  }
+  // Kakashi Note: Keep ARBoard cards type-colored; the shared name-based pastel stays out of the main surface so promotion vs demotion is obvious at a glance.
+  const baseCardTheme = showPromotionCard
+    ? AR_CARD_THEMES.promotion
+    : AR_CARD_THEMES.demotion
+  let cardColorCode = baseCardTheme.background
+  let cardAccentColor = baseCardTheme.accent
+  let cardStateAccent = baseCardTheme.stateAccent
+  let cardBorderColor = baseCardTheme.border
+  let cardThemeClass = showPromotionCard
+    ? "ar-card--promotion"
+    : "ar-card--demotion"
+  const proposerName = creator || "Unknown"
+  const resolvedProposerAddress =
+    String(cardPublisherAddress || "").trim() ||
+    (proposerName
+      ? await fetchOwnerAddressFromNameCached(proposerName).catch(() => "")
+      : "")
+  const resolvedMinterAddress =
+    publishedMinterAddress ||
+    (minterName
+      ? await fetchOwnerAddressFromNameCached(minterName).catch(() => "")
+      : "")
+  const [proposerAvatar, proposedMinterAvatar, proposerAddressInfo, proposedMinterAddressInfo] =
+    await Promise.all([
+      getMinterAvatar(proposerName),
+      getMinterAvatar(minterName || ""),
+      resolvedProposerAddress
+        ? getAddressInfoCached(resolvedProposerAddress).catch(() => null)
+        : Promise.resolve(null),
+      resolvedMinterAddress
+        ? getAddressInfoCached(resolvedMinterAddress).catch(() => null)
+        : Promise.resolve(null),
+    ])
+  const proposerLevel = proposerAddressInfo?.level ?? null
+  const proposedMinterLevel = proposedMinterAddressInfo?.level ?? null
+  const proposalStatusLabel = showPromotionCard
+    ? "PROMOTION PROPOSAL"
+    : "DEMOTION PROPOSAL"
+  const identityBoxesHtml = `
+    <div class="card-identity-row">
+      ${buildIdentityBoxHtml(
+        "Proposer",
+        proposerName,
+        resolvedProposerAddress,
+        proposerLevel,
+        proposerAvatar
+      )}
+      ${buildIdentityBoxHtml(
+        "Proposed Minter Admin",
+        minterName || "Unknown",
+        resolvedMinterAddress,
+        proposedMinterLevel,
+        proposedMinterAvatar
+      )}
+    </div>
+  `
   const {
     adminYes = 0,
     adminNo = 0,
@@ -1037,8 +1190,8 @@ const createARCardHTML = async (
   const verifiedName = await validateMinterName(minterName)
 
   if (verifiedName && !illegalDuplicate) {
-    const accountInfo = await getNameInfo(verifiedName)
-    const accountAddress = accountInfo.owner
+    const accountInfo = await getNameInfo(verifiedName).catch(() => null)
+    const accountAddress = accountInfo?.owner || ""
     const minterGroupAddresses = minterGroupMembers.map((m) => m.member)
     const adminAddresses = minterAdmins.map((m) => m.member)
     const existingAdmin = adminAddresses.includes(accountAddress)
@@ -1093,7 +1246,11 @@ const createARCardHTML = async (
       promotionCard
     ) {
       console.warn(`account was already admin, final. no add/remove pending.`)
-      cardColorCode = "rgb(3, 11, 24)"
+      cardColorCode = "rgba(8, 34, 31, 0.98)"
+      cardAccentColor = "rgba(137, 225, 170, 0.96)"
+      cardStateAccent = "rgba(72, 183, 122, 0.82)"
+      cardBorderColor = "rgba(72, 183, 122, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-promoted"
       altText = `<h4 style="color:rgb(89, 191, 204); margin-bottom: 0.5em;">PROMOTED to ADMIN</h4>`
       actionsHtml = ""
     }
@@ -1106,7 +1263,11 @@ const createARCardHTML = async (
       promotionCard
     ) {
       console.warn(`Account has previously had a removal attempt expire`)
-      cardColorCode = "rgb(33, 40, 11)"
+      cardColorCode = "rgba(10, 38, 30, 0.98)"
+      cardAccentColor = "rgba(134, 218, 222, 0.96)"
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-history"
       altText = `<h4 style="color:rgb(136, 114, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Demotion).</h4>`
       actionsHtml = ""
     }
@@ -1119,7 +1280,11 @@ const createARCardHTML = async (
       promotionCard
     ) {
       console.warn(`Account has previously had a removal attempt expire`)
-      cardColorCode = "rgb(14, 3, 24)"
+      cardColorCode = "rgba(8, 31, 37, 0.98)"
+      cardAccentColor = "rgba(134, 218, 222, 0.96)"
+      cardStateAccent = "rgba(126, 198, 255, 0.82)"
+      cardBorderColor = "rgba(126, 198, 255, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-history"
       altText = `<h4 style="color:rgb(114, 117, 146); margin-bottom: 0.5em;">PROMOTED, (+Previous Failed Promotion).</h4>`
       actionsHtml = ""
     }
@@ -1134,6 +1299,9 @@ const createARCardHTML = async (
       console.warn(
         `user is a previously approved an admin, but now has pending removals. Keeping html`
       )
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-pending"
       altText = `<h4 style="color:rgb(85, 34, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress...</h4>`
     }
 
@@ -1147,6 +1315,9 @@ const createARCardHTML = async (
       console.warn(
         `user is a previously approved an admin, but now has pending removals. Keeping html`
       )
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-pending"
       altText = `<h4 style="color:rgb(85, 74, 34); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Promotion)</h4>`
     }
 
@@ -1160,6 +1331,9 @@ const createARCardHTML = async (
       console.warn(
         `user is a previously approved an admin, but now has pending removals. Keeping html`
       )
+      cardStateAccent = "rgba(215, 101, 101, 0.82)"
+      cardBorderColor = "rgba(215, 101, 101, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-pending"
       altText = `<h4 style="color:rgb(198, 26, 13); margin-bottom: 0.5em;">Pending REMOVAL in progress... (+Previous Failed Demotion)</h4>`
     }
 
@@ -1175,7 +1349,11 @@ const createARCardHTML = async (
       console.warn(
         `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
       )
-      cardColorCode = "rgb(29, 4, 6)"
+      cardColorCode = "rgba(38, 10, 13, 0.98)"
+      cardAccentColor = "rgba(255, 182, 184, 0.96)"
+      cardStateAccent = "rgba(215, 101, 101, 0.82)"
+      cardBorderColor = "rgba(215, 101, 101, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-demoted"
       altText = `<h4 style="color:rgb(73, 24, 24); margin-bottom: 0.5em;">DEMOTED from ADMIN</h4>`
       actionsHtml = ""
     }
@@ -1191,7 +1369,11 @@ const createARCardHTML = async (
       console.warn(
         `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
       )
-      cardColorCode = "rgb(29, 4, 6)"
+      cardColorCode = "rgba(38, 10, 13, 0.98)"
+      cardAccentColor = "rgba(255, 182, 184, 0.96)"
+      cardStateAccent = "rgba(215, 101, 101, 0.82)"
+      cardBorderColor = "rgba(215, 101, 101, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-demoted"
       altText = `<h4 style="color:rgb(170, 32, 48); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Demotion)</h4>`
       actionsHtml = ""
     }
@@ -1207,7 +1389,11 @@ const createARCardHTML = async (
       console.warn(
         `account was demoted, final. no add pending, existingMinter, no expired add/remove.`
       )
-      cardColorCode = "rgb(29, 4, 6)"
+      cardColorCode = "rgba(35, 12, 14, 0.98)"
+      cardAccentColor = "rgba(255, 182, 184, 0.96)"
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--demotion ar-card--status-demoted"
       altText = `<h4 style="color:rgb(119, 170, 32); margin-bottom: 0.5em;">DEMOTED (+Previous Failed Promotion)</h4>`
       actionsHtml = ""
     }
@@ -1223,6 +1409,9 @@ const createARCardHTML = async (
       console.warn(
         `account was previously demoted, but also a pending re-add, allowing actions to show...`
       )
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-history"
       altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...</h4>`
     }
 
@@ -1236,6 +1425,9 @@ const createARCardHTML = async (
       console.warn(
         `account was previously demoted, but also a pending re-add, allowing actions to show...`
       )
+      cardStateAccent = "rgba(255, 182, 92, 0.82)"
+      cardBorderColor = "rgba(255, 182, 92, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-history"
       altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Promotion)</h4>`
     }
 
@@ -1249,13 +1441,20 @@ const createARCardHTML = async (
       console.warn(
         `account was previously demoted, but also a pending re-add, allowing actions to show...`
       )
+      cardStateAccent = "rgba(215, 101, 101, 0.82)"
+      cardBorderColor = "rgba(215, 101, 101, 0.28)"
+      cardThemeClass = "ar-card--promotion ar-card--status-history"
       altText = `<h4 style="color:rgb(73, 68, 24); margin-bottom: 0.5em;">Previously DEMOTED from ADMIN, attempted re-add in progress...(+Previous Failed Demotion)</h4>`
     }
   } else if (verifiedName && illegalDuplicate) {
     console.warn(
       `illegalDuplicate detected (this card was somehow allowed to be published twice, keeping newest as active to prevent issues with old cards and updates, but displaying without actions...)`
     )
-    cardColorCode = "rgb(82, 81, 81)"
+    cardColorCode = AR_CARD_THEMES.duplicate.background
+    cardAccentColor = AR_CARD_THEMES.duplicate.accent
+    cardStateAccent = AR_CARD_THEMES.duplicate.stateAccent
+    cardBorderColor = AR_CARD_THEMES.duplicate.border
+    cardThemeClass = "ar-card--duplicate"
     // Kakashi Note: Typo fixed "DUPLICATE (diplayed for data only)"
     altText = `<h4 style="color:rgb(21, 30, 39); margin-bottom: 0.5em;">DUPLICATE (displayed for data only)</h4>`
     actionsHtml = ""
@@ -1265,19 +1464,21 @@ const createARCardHTML = async (
   }
 
   return `
-    <div class="admin-card" style="background-color: ${cardColorCode}">
-      <div class="minter-card-header">
-        <h2 class="support-header"> Created By: </h2>
-        ${creatorAvatar}
-        <h2>${safeCreator}</h2>
-        ${promotionDemotionHtml}
-        <p>${safeHeader}</p>
+    <div
+      class="admin-card ar-card ${cardThemeClass}"
+      style="--ar-card-background: ${cardColorCode}; --ar-card-accent: ${cardAccentColor}; --ar-card-state-accent: ${cardStateAccent}; --ar-card-border: ${cardBorderColor};"
+    >
+      <div class="admin-card-header minter-card-header">
+        <div class="support-header"><h5>${proposalStatusLabel}</h5></div>
+        ${identityBoxesHtml}
+        <div class="card-title-box">${safeHeader}</div>
         ${altText}
       </div>
-      <div class="info">
-        ${safeContent}
+      <div class="support-header"><h5>PROPOSAL STATEMENT</h5></div>
+      <div class="info board-rich-content ql-editor">
+        ${renderedContent}
       </div>
-      <div class="support-header"><h5>LINKS</h5></div>
+      <div class="support-header"><h5>RELATED LINKS</h5></div>
       <div class="info-links">
         ${linksHTML}
       </div>
@@ -1288,19 +1489,23 @@ const createARCardHTML = async (
           ${detailsHtml}
         </div>
         ${actionsHtml}
-        <div class="admin-results">
+        <div class="admin-results vote-results vote-results--admin">
           <span class="admin-yes">Admin Support: ${adminYes}</span>
           <span class="admin-no">Admin Against: ${adminNo}</span>
         </div>
-        <div class="minter-results">
-            <span class="minter-yes">Minter Yes: ${minterYes}</span>
-            <span class="minter-no">Minter No: ${minterNo}</span>
+        <div class="minter-results vote-results vote-results--outlined">
+          <span class="minter-yes">Minter Yes: ${minterYes}</span>
+          <span class="minter-no">Minter No: ${minterNo}</span>
         </div>
-        <div class="total-results">
+        <div class="total-results vote-results vote-results--outlined vote-results--totals">
+          <div class="vote-total-group">
             <span class="total-yes">Total Yes: ${totalYes}</span>
-            <span class="total-yes">Weight: ${totalYesWeight}</span>
+            <span class="vote-total-weight">Weight: ${totalYesWeight}</span>
+          </div>
+          <div class="vote-total-group">
             <span class="total-no">Total No: ${totalNo}</span>
-            <span class="total-no">Weight: ${totalNoWeight}</span>
+            <span class="vote-total-weight">Weight: ${totalNoWeight}</span>
+          </div>
         </div>
       </div>
       <div class="support-header"><h5>ACTIONS FOR</h5><h5 style="color: #ffae42;">${safeMinterName}</h5>
@@ -1315,10 +1520,18 @@ const createARCardHTML = async (
       </div>
       <div id="comments-section-${cardIdentifier}" class="comments-section" style="display: none; margin-top: 20px;">
         <div id="comments-container-${cardIdentifier}" class="comments-container"></div>
-        <textarea id="new-comment-${cardIdentifier}" placeholder="Input your comment..." style="width: 100%; margin-top: 10px;"></textarea>
-        <button onclick="postComment('${cardIdentifier}')">Post Comment</button>
+        ${
+          typeof getBoardCommentComposerHtml === "function"
+            ? getBoardCommentComposerHtml(cardIdentifier)
+            : `<textarea id="new-comment-${cardIdentifier}" placeholder="Write a comment..." style="width: 100%; margin-top: 10px;"></textarea>`
+        }
+        ${
+          typeof getBoardCommentActionBarHtml === "function"
+            ? getBoardCommentActionBarHtml(cardIdentifier, "postComment")
+            : `<button onclick="postComment('${cardIdentifier}')">Post Comment</button>`
+        }
       </div>
-      <p style="font-size: 0.75rem; margin-top: 1vh; color: #4496a1">By: ${safeCreator} - ${safeFormattedDate}</p>
+      <p class="card-published-date">Published ${safeFormattedDate}</p>
     </div>
     `
 }

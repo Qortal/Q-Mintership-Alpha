@@ -51,25 +51,21 @@
     <link rel="stylesheet" href="./assets/css/forum-styles.css" />
     <link
       rel="preload"
-      href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap"
+      href="./assets/css/dm-sans.css?v=U9lZDZ"
       as="style"
       onload="this.onload=null;this.rel='stylesheet'"
     />
     <noscript
-      ><link
-        rel="stylesheet"
-        href="./assets/css/css.css?family=DM+Sans:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i&display=swap"
+      ><link rel="stylesheet" href="./assets/css/dm-sans.css?v=U9lZDZ"
     /></noscript>
     <link
       rel="preload"
-      href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap"
+      href="./assets/css/space-grotesk.css?v=U9lZDZ"
       as="style"
       onload="this.onload=null;this.rel='stylesheet'"
     />
     <noscript
-      ><link
-        rel="stylesheet"
-        href="./assets/css/space-grotesk.css?family=Space+Grotesk:300,400,500,600,700&display=swap"
+      ><link rel="stylesheet" href="./assets/css/space-grotesk.css?v=U9lZDZ"
     /></noscript>
     <link href="./assets/quill/quill.snow.css" rel="stylesheet" />
   </head>
@@ -77,7 +73,7 @@
     <script>
       // Variable-based versioning (credit: QuickMythril).
       // Kakashi Note: Keep the release label centralized so test builds can be updated in one place.
-      const Q_MINTERSHIP_VERSION = "v2.2b" // Update here in the future
+      const Q_MINTERSHIP_VERSION = "v3.0.1" // Update here in the future
       document.addEventListener("DOMContentLoaded", () => {
         // Kakashi Note: Populate all version slots so mobile and desktop headers stay in sync.
         document.querySelectorAll(".version").forEach((el) => {
@@ -106,10 +102,7 @@
                   >Q-Mintership</span
                 >
                 <!-- Kakashi Note: Version slot for mobile header. -->
-                <span
-                  class="navbar-caption display-7 version"
-                  style="display: block; color: rgb(126, 177, 188)"
-                ></span>
+                <span class="navbar-caption display-7 version"></span>
               </a>
             </span>
           </div>
@@ -147,9 +140,8 @@
                   href="index.html"
                   ><span class="navbar-caption display-4 app-title"
                     >Q-Mintership</span
-                  ><br /><!-- Kakashi Note: Version slot for desktop header. --><span
+                  ><!-- Kakashi Note: Version slot for desktop header. --><span
                     class="navbar-caption display-7 version"
-                    style="color: rgb(126, 177, 188)"
                   ></span></a
               ></span>
             </div>
@@ -275,7 +267,7 @@
       <div class="container">
         <div class="row">
           <div class="col-12 col-lg-4">
-            <div class="card-wrapper" style="justify-content: center">
+            <div class="card-wrapper">
               <div class="icon-wrapper">
                 <span
                   class="mbr-iconfont mbr-iconfont-btn mbri-file"
@@ -311,13 +303,12 @@
                 ></span>
               </div>
               <h3 class="mbr-section-title mbr-fonts-style display-2">
-                Become A Minter
+                Minter Nominations
               </h3>
               <p class="mbr-text mbr-fonts-style display-7">
-                Not already minting? You've come to the right place to get
-                started. The '<a href="MINTERS">MINTERS</a>.' links will take
-                you to the 'Minter Board'. The Minter Board is where established
-                level 5+ minters can nominate candidates for minting rights, and
+                The '<a href="MINTERS">MINTERS</a>.' links will take you to the
+                'Minter Board'. The Minter Board is where established level 5+
+                minters can nominate candidates for minting privileges, and
                 where existing minters and Minter Admins can review and support
                 those nominations.
               </p>
@@ -357,31 +348,6 @@
                   >ADMIN BOARD</a
                 >
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section
-      data-bs-version="5.1"
-      class="content7 boldm5 cid-uufIRKtXOO"
-      id="content7-6"
-    >
-      <div class="container">
-        <div class="row">
-          <div class="col-12 col-lg-7 card">
-            <div class="title-wrapper">
-              <h2 class="mbr-section-title mbr-fonts-style display-2 app-title">
-                Q-Mintership
-              </h2>
-            </div>
-          </div>
-          <div class="col-12 col-lg-5 card">
-            <div class="text-wrapper">
-              <p class="mbr-text mbr-fonts-style display-7">
-                <!-- <b class="version"><u>v1.06.4b</u></b>- <b>various improvements</b> - See post in the <a href="MINTERSHIP-FORUM">FORUM</a> for RELEASE NOTES. -->
-              </p>
             </div>
           </div>
         </div>

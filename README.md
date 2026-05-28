@@ -39,7 +39,7 @@ The 'Nominations' branch reflects the nominations-era workflow. The old 'direct 
 
 #### What Changed Since The Pre-Nominations Version
 
-- Sponsorship and self-sponsorship were replaced by peer nomination.
+- Self-Created Minter Cards were replaced by level 5+ Nominations.
 - The Minter Board now shows a full lifecycle for a nomination, including admin support and invite approval.
 - The admin workflow is split between the public nomination board, the private AdminBoard, and the MAM/AR board for admin membership changes.
 - The UI has been tightened up for faster loading, clearer list/card views, better invite status feedback, and more useful account details and explorer tools.

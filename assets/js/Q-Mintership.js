@@ -67,6 +67,448 @@ if (localStorage.getItem("latestMessageIdentifiers")) {
   )
 }
 
+const BOARD_ROUTE_WAIT_INTERVAL_MS = 120
+const BOARD_ROUTE_WAIT_TIMEOUT_MS = 90000
+const BOARD_ROUTE_HIGHLIGHT_CLASS = "board-route-target"
+
+let qMintershipRouteState = {
+  board: "",
+  cardIdentifier: "",
+  section: "",
+  hash: "",
+}
+let qMintershipRouteFocusRequestId = 0
+let qMintershipRouteHighlightTarget = null
+let qMintershipRouteHighlightTimer = null
+
+const normalizeBoardRouteKey = (value = "") => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+
+  if (!normalized) return ""
+
+  const aliasMap = {
+    admin: "admin",
+    adminboard: "admin",
+    databoard: "admin",
+    encryptedboard: "admin",
+    stats: "stats",
+    statistics: "stats",
+    nominatorstats: "stats",
+    minter: "minter",
+    minters: "minter",
+    minterboard: "minter",
+    ar: "ar",
+    mam: "ar",
+    addremove: "ar",
+    addremoveadmin: "ar",
+    addremoveboard: "ar",
+  }
+
+  return aliasMap[normalized] || ""
+}
+
+const safeDecodeRouteSegment = (value = "") => {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  try {
+    return decodeURIComponent(raw)
+  } catch (error) {
+    return raw
+  }
+}
+
+const buildBoardRouteHash = ({
+  board = "",
+  cardIdentifier = "",
+  section = "",
+} = {}) => {
+  const normalizedBoard = normalizeBoardRouteKey(board)
+  if (!normalizedBoard) return ""
+
+  const routeSegments = [normalizedBoard]
+  const safeCardIdentifier = String(cardIdentifier || "").trim()
+  const safeSection = String(section || "").trim()
+
+  if (safeCardIdentifier) {
+    routeSegments.push(encodeURIComponent(safeCardIdentifier))
+  }
+  if (safeSection) {
+    routeSegments.push(encodeURIComponent(safeSection))
+  }
+
+  return `#/${routeSegments.join("/")}`
+}
+
+const setBoardRouteState = (route = {}) => {
+  qMintershipRouteState.board = normalizeBoardRouteKey(route.board)
+  qMintershipRouteState.cardIdentifier = String(
+    route.cardIdentifier || ""
+  ).trim()
+  qMintershipRouteState.section = String(route.section || "").trim()
+  qMintershipRouteState.hash = String(route.hash || "").trim()
+}
+
+const clearBoardRouteHighlight = () => {
+  if (qMintershipRouteHighlightTimer) {
+    window.clearTimeout(qMintershipRouteHighlightTimer)
+    qMintershipRouteHighlightTimer = null
+  }
+
+  if (qMintershipRouteHighlightTarget) {
+    qMintershipRouteHighlightTarget.classList.remove(
+      BOARD_ROUTE_HIGHLIGHT_CLASS
+    )
+    qMintershipRouteHighlightTarget = null
+  }
+}
+
+const clearBoardRouteHash = () => {
+  qMintershipRouteFocusRequestId += 1
+  setBoardRouteState({})
+  clearBoardRouteHighlight()
+  if (window.location.hash) {
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}`
+    )
+  }
+}
+
+const parseBoardRouteHash = (rawHash = window.location.hash) => {
+  const strippedHash = String(rawHash || "")
+    .trim()
+    .replace(/^#/, "")
+
+  if (!strippedHash) return null
+
+  let board = ""
+  let cardIdentifier = ""
+  let section = ""
+
+  if (strippedHash.startsWith("/")) {
+    const [pathPart, queryPart = ""] = strippedHash
+      .replace(/^\//, "")
+      .split("?")
+    const pathSegments = pathPart
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => safeDecodeRouteSegment(segment))
+
+    board = normalizeBoardRouteKey(pathSegments[0] || "")
+    cardIdentifier = pathSegments[1] || ""
+    section = pathSegments[2] || ""
+
+    if (queryPart) {
+      const params = new URLSearchParams(queryPart)
+      board = normalizeBoardRouteKey(params.get("board") || board)
+      cardIdentifier = params.get("card") || params.get("cardIdentifier") || cardIdentifier
+      section = params.get("section") || section
+    }
+  } else {
+    const queryString = strippedHash.startsWith("?")
+      ? strippedHash.slice(1)
+      : strippedHash
+    const params = new URLSearchParams(queryString)
+    board = normalizeBoardRouteKey(params.get("board"))
+    cardIdentifier = params.get("card") || params.get("cardIdentifier") || ""
+    section = params.get("section") || ""
+  }
+
+  cardIdentifier = String(cardIdentifier || "").trim()
+  section = String(section || "").trim()
+
+  if (!board && !cardIdentifier && !section) {
+    return null
+  }
+
+  return {
+    board,
+    cardIdentifier,
+    section,
+    hash: rawHash,
+  }
+}
+
+const isBoardPageMounted = (boardKey = "") => {
+  switch (normalizeBoardRouteKey(boardKey)) {
+    case "minter":
+      return Boolean(
+        document.getElementById("display-mode-select") &&
+          document.getElementById("cards-container") &&
+          document.querySelector(".minter-board-main")
+      )
+    case "admin":
+      return Boolean(
+        document.getElementById("encrypted-cards-container") &&
+          document.querySelector(".minter-board-main")
+      )
+    case "ar":
+      return Boolean(
+        document.querySelector(".add-remove-admin-main") &&
+          document.getElementById("cards-container")
+      )
+    case "stats":
+      return Boolean(
+        document.querySelector(".stats-board-main") &&
+          document.getElementById("stats-board-content")
+      )
+    default:
+      return false
+  }
+}
+
+const ensureBoardPageScriptLoaded = async (boardKey = "") => {
+  switch (normalizeBoardRouteKey(boardKey)) {
+    case "minter":
+      if (typeof loadMinterBoardPage === "undefined") {
+        await loadScript("./assets/js/MinterBoard.js")
+      }
+      return typeof loadMinterBoardPage === "function"
+    case "admin":
+      if (typeof loadAdminBoardPage === "undefined") {
+        await loadScript("./assets/js/AdminBoard.js")
+      }
+      return typeof loadAdminBoardPage === "function"
+    case "ar":
+      if (typeof loadAddRemoveAdminPage === "undefined") {
+        await loadScript("./assets/js/ARBoard.js")
+      }
+      return typeof loadAddRemoveAdminPage === "function"
+    case "stats":
+      if (typeof loadStatsPage === "undefined") {
+        await loadScript("./assets/js/StatsBoard.js")
+      }
+      return typeof loadStatsPage === "function"
+    default:
+      return false
+  }
+}
+
+const loadBoardPageForRoute = async (boardKey = "") => {
+  const normalizedBoard = normalizeBoardRouteKey(boardKey)
+  if (!normalizedBoard) return false
+
+  try {
+    const scriptReady = await ensureBoardPageScriptLoaded(normalizedBoard)
+    if (!scriptReady) {
+      console.warn(`Board route script could not be loaded for ${normalizedBoard}`)
+      return false
+    }
+
+    if (normalizedBoard === "minter") {
+      await loadMinterBoardPage()
+    } else if (normalizedBoard === "admin") {
+      await loadAdminBoardPage()
+    } else if (normalizedBoard === "ar") {
+      await loadAddRemoveAdminPage()
+    } else if (normalizedBoard === "stats") {
+      await loadStatsPage()
+    }
+    return true
+  } catch (error) {
+    console.error(`Error loading board route for ${normalizedBoard}:`, error)
+    return false
+  }
+}
+
+const waitForBoardCardElement = async (
+  cardIdentifier = "",
+  timeoutMs = BOARD_ROUTE_WAIT_TIMEOUT_MS,
+  requestId = qMintershipRouteFocusRequestId
+) => {
+  const safeCardIdentifier = String(cardIdentifier || "").trim()
+  if (!safeCardIdentifier) return null
+
+  const targetId = `card-shell-${safeCardIdentifier}`
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < timeoutMs) {
+    if (requestId !== qMintershipRouteFocusRequestId) {
+      return null
+    }
+
+    const target = document.getElementById(targetId)
+    if (target) {
+      return target
+    }
+
+    await qBoardDelay(BOARD_ROUTE_WAIT_INTERVAL_MS)
+  }
+
+  return document.getElementById(targetId)
+}
+
+const ensureMinterBoardListRouteState = async (
+  cardIdentifier = "",
+  section = "",
+  requestId = qMintershipRouteFocusRequestId
+) => {
+  const safeCardIdentifier = String(cardIdentifier || "").trim()
+  if (!safeCardIdentifier) return
+
+  if (requestId !== qMintershipRouteFocusRequestId) {
+    return
+  }
+
+  const detail = document.getElementById(
+    `minter-list-detail-${safeCardIdentifier}`
+  )
+  if (!detail) return
+
+  const showComments = ["all", "comments", "full"].includes(
+    String(section || "").trim().toLowerCase()
+  )
+  const controls = Array.from(
+    document.querySelectorAll(`[aria-controls="${detail.id}"]`)
+  )
+  const desiredButton =
+    controls.find(
+      (control) =>
+        String(control?.dataset?.showComments || "false").toLowerCase() ===
+        String(showComments).toLowerCase()
+    ) || controls[0] || null
+
+  if (detail.hidden) {
+    if (typeof toggleMinterListDetails === "function" && desiredButton) {
+      await toggleMinterListDetails(safeCardIdentifier, desiredButton)
+    } else {
+      detail.hidden = false
+      if (typeof setMinterListCommentsVisibility === "function") {
+        await setMinterListCommentsVisibility(safeCardIdentifier, showComments)
+      }
+    }
+  } else if (typeof setMinterListCommentsVisibility === "function") {
+    await setMinterListCommentsVisibility(safeCardIdentifier, showComments)
+  }
+
+  await qBoardDelay(0)
+}
+
+const highlightBoardRouteTarget = (targetEl) => {
+  if (!targetEl) return
+
+  clearBoardRouteHighlight()
+  qMintershipRouteHighlightTarget = targetEl
+  targetEl.classList.add(BOARD_ROUTE_HIGHLIGHT_CLASS)
+
+  try {
+    if (typeof targetEl.focus === "function") {
+      targetEl.setAttribute("tabindex", "-1")
+      targetEl.focus({ preventScroll: true })
+    }
+  } catch (error) {
+    console.warn("Unable to focus route target element:", error)
+  }
+
+  qMintershipRouteHighlightTimer = window.setTimeout(() => {
+    if (qMintershipRouteHighlightTarget === targetEl) {
+      targetEl.classList.remove(BOARD_ROUTE_HIGHLIGHT_CLASS)
+      qMintershipRouteHighlightTarget = null
+      qMintershipRouteHighlightTimer = null
+    }
+  }, 2500)
+}
+
+const focusBoardRoute = async (route = {}) => {
+  const routeBoard = normalizeBoardRouteKey(route.board)
+  const cardIdentifier = String(route.cardIdentifier || "").trim()
+  const section = String(route.section || "").trim()
+  const routeHash = String(route.hash || "").trim() || buildBoardRouteHash(route)
+  const requestId = ++qMintershipRouteFocusRequestId
+
+  setBoardRouteState({
+    board: routeBoard,
+    cardIdentifier,
+    section,
+    hash: routeHash,
+  })
+
+  if (!routeBoard) {
+    return
+  }
+
+  if (!userState.isLoggedIn) {
+    await login()
+  }
+  if (!userState.isLoggedIn) {
+    return
+  }
+
+  if (!isBoardPageMounted(routeBoard) || qMintershipActiveBoard !== routeBoard) {
+    const loaded = await loadBoardPageForRoute(routeBoard)
+    if (!loaded || requestId !== qMintershipRouteFocusRequestId) {
+      return
+    }
+  }
+
+  if (routeBoard === "stats") {
+    if (section) {
+      if (typeof focusStatsBoardSection === "function") {
+        await focusStatsBoardSection(section, {
+          behavior: "smooth",
+        })
+      }
+    } else {
+      if (typeof setStatsBoardSectionActiveState === "function") {
+        setStatsBoardSectionActiveState("nominator")
+      }
+      try {
+        window.scrollTo({ top: 0, behavior: "auto" })
+      } catch (error) {
+        window.scrollTo(0, 0)
+      }
+    }
+    return
+  }
+
+  if (!cardIdentifier) {
+    return
+  }
+
+  const targetEl = await waitForBoardCardElement(
+    cardIdentifier,
+    BOARD_ROUTE_WAIT_TIMEOUT_MS,
+    requestId
+  )
+
+  if (!targetEl || requestId !== qMintershipRouteFocusRequestId) {
+    console.warn(`Could not find card "${cardIdentifier}" for route ${routeHash}`)
+    return
+  }
+
+  if (routeBoard === "minter") {
+    await ensureMinterBoardListRouteState(cardIdentifier, section, requestId)
+    if (requestId !== qMintershipRouteFocusRequestId) {
+      return
+    }
+  }
+
+  highlightBoardRouteTarget(targetEl)
+  try {
+    targetEl.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+      inline: "nearest",
+    })
+  } catch (error) {
+    console.warn("Unable to scroll to routed card:", error)
+    targetEl.scrollIntoView()
+  }
+}
+
+const handleBoardRouteFromHash = async (rawHash = window.location.hash) => {
+  const route = parseBoardRouteHash(rawHash)
+  if (!route) {
+    return
+  }
+
+  await focusBoardRoute(route)
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("DOMContentLoaded fired!")
   createScrollToTopButton()
@@ -81,6 +523,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!userState.isLoggedIn) {
         await login()
       }
+      clearBoardRouteHash()
       await loadForumPage()
       loadRoomContent("general")
       startPollingForNewMessages()
@@ -97,6 +540,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!userState.isLoggedIn) {
         await login()
       }
+      clearBoardRouteHash()
       if (typeof loadMinterBoardPage === "undefined") {
         console.log(
           "loadMinterBoardPage not found, loading script dynamically..."
@@ -117,13 +561,30 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!userState.isLoggedIn) {
         await login()
       }
-      if (typeof loadMinterBoardPage === "undefined") {
+      clearBoardRouteHash()
+      if (typeof loadAddRemoveAdminPage === "undefined") {
         console.log(
-          "loadMinterBoardPage not found, loading script dynamically..."
+          "loadAddRemoveAdminPage not found, loading script dynamically..."
         )
-        await loadScript("./assets/js/MinterBoard.js")
+        await loadScript("./assets/js/ARBoard.js")
       }
       await loadAddRemoveAdminPage()
+    })
+  })
+
+  const statsLinks = document.querySelectorAll('a[href="STATS"]')
+  statsLinks.forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      event.preventDefault()
+      if (!userState.isLoggedIn) {
+        await login()
+      }
+      clearBoardRouteHash()
+      if (typeof loadStatsPage === "undefined") {
+        console.log("loadStatsPage not found, loading script dynamically...")
+        await loadScript("./assets/js/StatsBoard.js")
+      }
+      await loadStatsPage()
     })
   })
 
@@ -172,6 +633,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!userState.isLoggedIn) {
           await login()
         }
+        clearBoardRouteHash()
         if (typeof loadAdminBoardPage === "undefined") {
           console.log(
             "loadAdminBoardPage function not found, loading script dynamically..."
@@ -190,6 +652,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!userState.isLoggedIn) {
           await login()
         }
+        clearBoardRouteHash()
         if (typeof loadMinterAdminToolsPage === "undefined") {
           console.log(
             "loadMinterAdminToolsPage function not found, loading script dynamically..."
@@ -226,6 +689,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  window.addEventListener("hashchange", () => {
+    void handleBoardRouteFromHash(window.location.hash)
+  })
+
+  const initialRoute = parseBoardRouteHash(window.location.hash)
+  if (initialRoute) {
+    await handleBoardRouteFromHash(initialRoute.hash)
+  }
+
   console.log("All DOMContentLoaded tasks completed.")
 })
 
@@ -241,14 +713,8 @@ async function loadScript(src) {
 
 // Main load function to clear existing HTML and load the forum page -----------------------------------------------------
 const loadForumPage = async () => {
-  // remove everything that isn't the menu from the body to use js to generate page content.
-  const bodyChildren = document.body.children
-  for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i]
-    if (!child.classList.contains("menu")) {
-      child.remove()
-    }
-  }
+  clearQMintershipBodyContent()
+  qMintershipActiveBoard = "forum"
 
   if (typeof userState.isAdmin === "undefined" || !userState.isAdmin) {
     try {

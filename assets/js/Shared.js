@@ -1,6 +1,7 @@
 // This is a Helper Script that will contain the functions that are accessed from multiple different scripts in the app. Allowing this script to be loaded first, will ensure they all have awareness of them and will allow future development to be simpler.
 
 let blockedNamesIdentifier = "Q-Mintership-blockedNames"
+let qMintershipActiveBoard = "forum"
 
 // Kakashi Note: Core escaping helper used across boards to keep untrusted text from executing as markup.
 // Basic output-encoding helper for untrusted text that will be inserted into HTML strings.
@@ -58,6 +59,45 @@ const qIsSafeUrl = (url) => {
 const qSanitizeUrl = (url, fallback = "#") => {
   const safe = String(url ?? "").trim()
   return qIsSafeUrl(safe) ? safe : fallback
+}
+
+const Q_MINTERSHIP_BODY_CONTENT_SELECTORS = [
+  ".features7",
+  ".features1",
+  ".footer1",
+  ".forum-main",
+  ".minter-board-main",
+  ".add-remove-admin-main",
+  ".stats-board-main",
+  ".tools-main",
+]
+
+const clearQMintershipBodyContent = (selectors = Q_MINTERSHIP_BODY_CONTENT_SELECTORS) => {
+  if (typeof document === "undefined" || !document.body) {
+    return
+  }
+
+  const cleanupSelectors = Array.from(
+    new Set(
+      (Array.isArray(selectors) ? selectors : [selectors])
+        .filter(Boolean)
+        .map((selector) => String(selector).trim())
+        .filter(Boolean)
+    )
+  )
+
+  if (!cleanupSelectors.length) {
+    return
+  }
+
+  const selectorText = cleanupSelectors.join(", ")
+  const bodyChildren = Array.from(document.body.children)
+
+  for (const child of bodyChildren) {
+    if (child.matches?.(selectorText) || child.querySelector?.(selectorText)) {
+      child.remove()
+    }
+  }
 }
 
 const Q_RICH_TEXT_ALLOWED_TAGS = new Set([
@@ -218,8 +258,12 @@ const boardIdentityLevelCache = new Map()
 const boardAccountNamesCache = new Map()
 const boardAccountSponsorshipCache = new Map()
 const boardAccountTransactionPageCache = new Map()
+const boardAccountFirstTransactionCache = new Map()
 const boardAccountGroupCache = new Map()
 const boardAccountAtCache = new Map()
+const boardAccountMinterGroupStatusCache = new Map()
+const boardAccountAssetBalancesCache = new Map()
+const boardCommentVoterAddressCache = new Map()
 const BOARD_GROUP_TRANSACTION_TYPES = new Set([
   "GROUP_INVITE",
   "JOIN_GROUP",
@@ -240,6 +284,15 @@ const boardAccountInspectorState = {
   transactions: [],
   names: [],
   sponsorship: null,
+  minterGroupStatus: null,
+  assetBalances: [],
+  assetBalancesExpanded: false,
+  assetBalancesLoaded: false,
+  assetBalancesLoading: false,
+  assetBalancesError: "",
+  firstTransaction: null,
+  firstTransactionLoading: false,
+  firstTransactionError: "",
   balance: null,
   addressInfo: null,
 }
@@ -1219,11 +1272,46 @@ const getBoardAccountSponsorshipInfo = async (address) => {
     return {
       data: null,
       usedFallback: false,
+      sourceType: "none",
     }
   }
 
   if (boardAccountSponsorshipCache.has(normalizedAddress)) {
     return boardAccountSponsorshipCache.get(normalizedAddress)
+  }
+
+  const hasMeaningfulSponsorshipData = (data) => {
+    if (
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      Object.keys(data).length === 0
+    ) {
+      return false
+    }
+
+    const sponseeCount = Number(data?.sponseeCount ?? 0)
+    const names = Array.isArray(data?.names) ? data.names : []
+    const numericFields = [
+      "nonRegisteredCount",
+      "avgBalance",
+      "arbitraryCount",
+      "transferAssetCount",
+      "transferPrivsCount",
+      "sellCount",
+      "sellAmount",
+      "buyCount",
+      "buyAmount",
+    ]
+
+    if (sponseeCount > 0 || names.length > 0) {
+      return true
+    }
+
+    return numericFields.some((field) => {
+      const value = Number(data?.[field] ?? 0)
+      return Number.isFinite(value) && value > 0
+    })
   }
 
   const fetchSponsorship = async (suffix = "") => {
@@ -1233,12 +1321,7 @@ const getBoardAccountSponsorshipInfo = async (address) => {
           normalizedAddress
         )}${suffix}`
       )
-      if (
-        data &&
-        typeof data === "object" &&
-        !Array.isArray(data) &&
-        Object.keys(data).length > 0
-      ) {
+      if (hasMeaningfulSponsorshipData(data)) {
         return data
       }
       return null
@@ -1252,6 +1335,7 @@ const getBoardAccountSponsorshipInfo = async (address) => {
     const result = {
       data: primary,
       usedFallback: false,
+      sourceType: "sponsorship",
     }
     boardAccountSponsorshipCache.set(normalizedAddress, result)
     return result
@@ -1259,10 +1343,17 @@ const getBoardAccountSponsorshipInfo = async (address) => {
 
   // If the address itself has no sponsorship profile, ask for the sponsor-side view instead.
   const fallback = await fetchSponsorship("/sponsor")
-  const result = {
-    data: fallback,
-    usedFallback: Boolean(fallback),
-  }
+  const result = fallback
+    ? {
+        data: fallback,
+        usedFallback: true,
+        sourceType: "sponsor",
+      }
+    : {
+        data: null,
+        usedFallback: false,
+        sourceType: "none",
+      }
   boardAccountSponsorshipCache.set(normalizedAddress, result)
   return result
 }
@@ -1303,6 +1394,71 @@ const getBoardAccountTransactions = async (
     boardAccountTransactionPageCache.set(cacheKey, [])
     return []
   }
+}
+
+const getBoardAccountFirstTransactionInfo = async (address) => {
+  const normalizedAddress = String(address ?? "").trim()
+  if (!normalizedAddress) {
+    return {
+      loaded: true,
+      hasTransaction: false,
+      error: false,
+      transaction: null,
+      timestamp: null,
+      dateText: "",
+    }
+  }
+
+  if (boardAccountFirstTransactionCache.has(normalizedAddress)) {
+    const cached = boardAccountFirstTransactionCache.get(normalizedAddress)
+    return cached && typeof cached.then === "function" ? cached : cached
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const transactions = await searchTransactions({
+        address: normalizedAddress,
+        confirmationStatus: "BOTH",
+        limit: 1,
+        reverse: false,
+        offset: 0,
+        txTypes: [],
+        silent: true,
+      })
+
+      const firstTx = Array.isArray(transactions) && transactions.length > 0
+        ? transactions[0]
+        : null
+      const timestamp = Number(firstTx?.timestamp ?? NaN)
+      const hasTimestamp = Number.isFinite(timestamp)
+
+      const result = {
+        loaded: true,
+        hasTransaction: Boolean(firstTx) && hasTimestamp,
+        error: false,
+        transaction: firstTx,
+        timestamp: hasTimestamp ? timestamp : null,
+        dateText: hasTimestamp ? new Date(timestamp).toLocaleString() : "",
+      }
+
+      boardAccountFirstTransactionCache.set(normalizedAddress, result)
+      return result
+    } catch (error) {
+      console.error("Unable to fetch first transaction info:", error)
+      boardAccountFirstTransactionCache.delete(normalizedAddress)
+      return {
+        loaded: false,
+        hasTransaction: false,
+        error: true,
+        transaction: null,
+        timestamp: null,
+        dateText: "",
+      }
+    }
+  })()
+
+  boardAccountFirstTransactionCache.set(normalizedAddress, fetchPromise)
+  return fetchPromise
 }
 
 const buildBoardAccountTransactionCountsHtml = (transactions = []) => {
@@ -1590,6 +1746,142 @@ const getBoardGroupInfo = async (groupId) => {
 
   boardAccountGroupCache.set(normalizedGroupId, null)
   return null
+}
+
+const getBoardAccountMinterGroupStatus = async (address) => {
+  const normalizedAddress = String(address ?? "").trim()
+  if (!normalizedAddress) {
+    return {
+      isInMinterGroup: false,
+      previouslyKicked: false,
+      previouslyBanned: false,
+      hasHistory: false,
+      currentGroup: null,
+    }
+  }
+
+  if (boardAccountMinterGroupStatusCache.has(normalizedAddress)) {
+    const cached = boardAccountMinterGroupStatusCache.get(normalizedAddress)
+    return cached && typeof cached.then === "function" ? cached : cached
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const [userGroups, kickBanData] = await Promise.all([
+        typeof getUserGroups === "function"
+          ? getUserGroups(normalizedAddress).catch(() => [])
+          : Promise.resolve([]),
+        typeof fetchAllKickBanTxData === "function"
+          ? fetchAllKickBanTxData().catch(() => getEmptyKickBanTxData())
+          : Promise.resolve(getEmptyKickBanTxData()),
+      ])
+
+      const groupEntry = Array.isArray(userGroups)
+        ? userGroups.find(
+            (group) =>
+              Number(group?.groupId) === 694 ||
+              String(group?.groupName || "").trim().toLowerCase() === "minter"
+          )
+        : null
+
+      const finalKickTxs = Array.isArray(kickBanData?.finalKickTxs)
+        ? kickBanData.finalKickTxs
+        : []
+      const finalBanTxs = Array.isArray(kickBanData?.finalBanTxs)
+        ? kickBanData.finalBanTxs
+        : []
+
+      const previouslyKicked = finalKickTxs.some(
+        (tx) => Number(tx?.groupId) === 694 && String(tx?.member || "").trim() === normalizedAddress
+      )
+      const previouslyBanned = finalBanTxs.some(
+        (tx) => Number(tx?.groupId) === 694 && String(tx?.offender || "").trim() === normalizedAddress
+      )
+
+      const result = {
+        isInMinterGroup: Boolean(groupEntry),
+        currentGroup: groupEntry,
+        previouslyKicked,
+        previouslyBanned,
+        hasHistory: previouslyKicked || previouslyBanned,
+      }
+      boardAccountMinterGroupStatusCache.set(normalizedAddress, result)
+      return result
+    } catch (error) {
+      console.error("Unable to fetch MINTER group status:", error)
+      const result = {
+        isInMinterGroup: false,
+        previouslyKicked: false,
+        previouslyBanned: false,
+        hasHistory: false,
+        currentGroup: null,
+      }
+      boardAccountMinterGroupStatusCache.set(normalizedAddress, result)
+      return result
+    }
+  })()
+
+  boardAccountMinterGroupStatusCache.set(normalizedAddress, fetchPromise)
+  return fetchPromise
+}
+
+const getBoardAccountAssetBalances = async (address) => {
+  const normalizedAddress = String(address ?? "").trim()
+  if (!normalizedAddress) {
+    return []
+  }
+
+  if (boardAccountAssetBalancesCache.has(normalizedAddress)) {
+    const cached = boardAccountAssetBalancesCache.get(normalizedAddress)
+    return cached && typeof cached.then === "function" ? cached : cached
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const response = await qFetchBoardJson(
+        `/assets/balances?address=${encodeURIComponent(
+          normalizedAddress
+        )}&ordering=ASSET_BALANCE_ACCOUNT&limit=0`
+      )
+
+      const balances = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.balances)
+        ? response.balances
+        : []
+
+      const normalizedBalances = balances
+        .map((balance) => ({
+          address: String(balance?.address || normalizedAddress),
+          assetId: balance?.assetId,
+          assetName: String(balance?.assetName || "Unknown"),
+          balance: String(balance?.balance ?? "").trim(),
+        }))
+        .filter((balance) => {
+          const rawBalance = balance.balance.replace(/,/g, "")
+          const numericBalance = Number(rawBalance)
+          return Number.isFinite(numericBalance) && numericBalance > 0
+        })
+        .sort((a, b) => {
+          if (Number(a.assetId) === 0) return -1
+          if (Number(b.assetId) === 0) return 1
+          if (a.assetName !== b.assetName) {
+            return a.assetName.localeCompare(b.assetName)
+          }
+          return Number(a.assetId) - Number(b.assetId)
+        })
+
+      boardAccountAssetBalancesCache.set(normalizedAddress, normalizedBalances)
+      return normalizedBalances
+    } catch (error) {
+      console.error("Unable to fetch asset balances:", error)
+      boardAccountAssetBalancesCache.delete(normalizedAddress)
+      return []
+    }
+  })()
+
+  boardAccountAssetBalancesCache.set(normalizedAddress, fetchPromise)
+  return fetchPromise
 }
 
 const normalizeBoardTransactionAtAddress = (value) => String(value ?? "").trim()
@@ -2497,6 +2789,58 @@ const formatBoardAccountBalance = (balance) => {
   })
 }
 
+const splitBoardAccountBalanceParts = (balance) => {
+  const rawBalance = String(balance ?? "").trim().replace(/,/g, "")
+  if (!rawBalance) {
+    return null
+  }
+
+  const negative = rawBalance.startsWith("-")
+  const normalized = negative ? rawBalance.slice(1) : rawBalance
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    return null
+  }
+
+  const [wholePart = "0", fractionPart = ""] = normalized.split(".")
+  const wholeWithSeparators = wholePart.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+
+  return {
+    whole: `${negative ? "-" : ""}${wholeWithSeparators}`,
+    fraction: fractionPart,
+    hasFraction: fractionPart.length > 0,
+  }
+}
+
+const buildBoardAccountBalanceHtml = (
+  balance,
+  { includeUnit = true, className = "account-balance-display" } = {}
+) => {
+  const parts = splitBoardAccountBalanceParts(balance)
+  if (!parts) {
+    return `<span class="${qEscapeAttr(
+      className
+    )}">${qEscapeHtml("n/a")}</span>`
+  }
+
+  return `
+    <span class="${qEscapeAttr(className)}">
+      <span class="account-balance-whole">${qEscapeHtml(parts.whole)}</span>
+      ${
+        parts.hasFraction
+          ? `<span class="account-balance-fraction">.${qEscapeHtml(
+              parts.fraction
+            )}</span>`
+          : ""
+      }
+      ${
+        includeUnit
+          ? `<span class="account-balance-unit">QORT</span>`
+          : ""
+      }
+    </span>
+  `
+}
+
 const buildBoardAccountChipListHtml = (items = [], emptyLabel = "") => {
   if (!Array.isArray(items) || items.length === 0) {
     return emptyLabel
@@ -2519,8 +2863,202 @@ const buildBoardAccountChipListHtml = (items = [], emptyLabel = "") => {
           })
         )
         .join("")}
+      </div>
+  `
+}
+
+const buildBoardAccountMinterGroupStatusHtml = (status = {}) => {
+  const isInMinterGroup = Boolean(status?.isInMinterGroup)
+  const badgeClass = isInMinterGroup
+    ? "account-group-status-badge account-group-status-badge--yes"
+    : "account-group-status-badge account-group-status-badge--no"
+  const badgeLabel = isInMinterGroup ? "YES" : "NO"
+  const description = isInMinterGroup
+    ? "This account is currently in the MINTER group."
+    : "This account is not currently in the MINTER group."
+  const historyNotes = []
+
+  if (status?.previouslyKicked) {
+    historyNotes.push("Previously kicked from MINTER group!")
+  }
+  if (status?.previouslyBanned) {
+    historyNotes.push("Previously banned from MINTER group!")
+  }
+
+  return `
+    <div class="account-group-status-grid">
+      <div class="account-group-status-card">
+        <span class="account-group-status-label">In MINTER group</span>
+        <span class="${qEscapeAttr(badgeClass)}">${qEscapeHtml(badgeLabel)}</span>
+      </div>
+    </div>
+    <p class="account-note">${qEscapeHtml(description)}</p>
+    ${historyNotes
+      .map(
+        (note) =>
+          `<p class="account-note account-note--warning">${qEscapeHtml(
+            note
+          )}</p>`
+      )
+      .join("")}
+  `
+}
+
+const buildBoardAccountAssetBalancesRowHtml = (asset = {}) => {
+  const assetName = String(asset?.assetName || "Unknown asset")
+  const assetId = Number(asset?.assetId)
+  const assetMetaLabel = Number.isFinite(assetId)
+    ? `Asset #${assetId}`
+    : "Asset ID n/a"
+  const isQort = assetId === 0 || assetName.toUpperCase() === "QORT"
+
+  return `
+    <div class="account-asset-balance-row ${
+      isQort ? "account-asset-balance-row--qort" : ""
+    }">
+      <div class="account-asset-balance-row-top">
+        <span class="account-asset-balance-name">${qEscapeHtml(assetName)}</span>
+        <span class="account-asset-balance-meta">${qEscapeHtml(
+          assetMetaLabel
+        )}</span>
+      </div>
+      <div class="account-asset-balance-value">
+        ${buildBoardAccountBalanceHtml(asset?.balance, {
+          includeUnit: false,
+          className: "account-asset-balance-display",
+        })}
+      </div>
     </div>
   `
+}
+
+const buildBoardAccountAssetBalancesBodyHtml = () => {
+  const state = boardAccountInspectorState
+  const isExpanded = Boolean(state.assetBalancesExpanded)
+  const isLoading = Boolean(state.assetBalancesLoading)
+  const hasLoaded = Boolean(state.assetBalancesLoaded)
+  const hasError = Boolean(state.assetBalancesError)
+  const balances = Array.isArray(state.assetBalances)
+    ? state.assetBalances
+    : []
+  const balanceCount = balances.length
+  const buttonLabel = isLoading
+    ? "Loading asset balances..."
+    : hasLoaded
+    ? isExpanded
+      ? "Hide asset balances"
+      : "Show all asset balances"
+    : hasError
+    ? "Retry asset balances"
+    : "Show all asset balances"
+  const summaryText = isLoading
+    ? "Loading all positive asset balances for this account..."
+    : hasLoaded
+    ? balanceCount > 0
+      ? `Showing ${balanceCount} positive asset balance${
+          balanceCount === 1 ? "" : "s"
+        }.`
+      : "No positive asset balances were returned for this account."
+    : hasError
+    ? "The asset balance lookup hit a problem. Try loading it again."
+    : "Click to load every positive asset balance held by this account, including QORT and any other chain assets. This can take a while on older or very active accounts."
+  const panelHtml = isLoading
+    ? `
+      <div class="account-asset-balances-panel">
+        <div class="account-asset-balances-loading">
+          ${getBoardInlineLoadingHTML("Loading asset balances...")}
+        </div>
+      </div>
+    `
+    : hasError && !hasLoaded
+    ? `
+      <p class="account-note account-note--warning">
+        ${qEscapeHtml(state.assetBalancesError)}
+      </p>
+    `
+    : hasLoaded && isExpanded
+    ? `
+      <div class="account-asset-balances-panel">
+        ${
+          balanceCount > 0
+            ? `
+              <div class="account-asset-balance-list">
+                ${balances.map((asset) => buildBoardAccountAssetBalancesRowHtml(asset)).join("")}
+              </div>
+            `
+            : `<div class="account-asset-balances-empty">No positive asset balances were returned for this account.</div>`
+        }
+      </div>
+    `
+    : ""
+
+  return `
+    <div class="account-asset-balances-toolbar">
+      <button
+        type="button"
+        class="account-asset-balances-button"
+        onclick="toggleBoardAccountAssetBalances()"
+        ${isLoading ? "disabled" : ""}
+      >
+        ${qEscapeHtml(buttonLabel)}
+      </button>
+      <p class="account-asset-balances-summary">${qEscapeHtml(summaryText)}</p>
+    </div>
+    ${panelHtml}
+  `
+}
+
+const buildBoardAccountAssetBalancesSectionHtml = () =>
+  buildBoardAccountCardSection(
+    "Asset balances",
+    "Load every positive asset balance held by this account.",
+    `
+      <div id="account-asset-balances-body">
+        ${buildBoardAccountAssetBalancesBodyHtml()}
+      </div>
+    `
+  )
+
+const buildBoardAccountFirstTransactionValueHtml = () => {
+  const state = boardAccountInspectorState
+
+  if (state.firstTransactionLoading) {
+    return `Loading oldest transaction...`
+  }
+
+  if (state.firstTransactionError) {
+    return qEscapeHtml(state.firstTransactionError)
+  }
+
+  if (state.firstTransaction?.hasTransaction) {
+    return qEscapeHtml(state.firstTransaction.dateText || "n/a")
+  }
+
+  return `No transactions found.`
+}
+
+const getBoardAccountFirstTransactionValueClassName = () => {
+  const state = boardAccountInspectorState
+
+  if (state.firstTransactionLoading) {
+    return "account-stat-value account-stat-value--loading"
+  }
+
+  if (state.firstTransactionError) {
+    return "account-stat-value account-stat-value--warning"
+  }
+
+  return "account-stat-value account-stat-value--timestamp"
+}
+
+const updateBoardAccountFirstTransactionSection = () => {
+  const valueEl = document.getElementById("account-first-transaction-value")
+  if (!valueEl) {
+    return
+  }
+
+  valueEl.className = getBoardAccountFirstTransactionValueClassName()
+  valueEl.innerHTML = buildBoardAccountFirstTransactionValueHtml()
 }
 
 const buildBoardAccountInspectorLoadingHtml = (title, subtitle = "") => `
@@ -2546,6 +3084,9 @@ const buildBoardAccountInspectorHtml = () => {
   const state = boardAccountInspectorState
   const addressInfo = state.addressInfo || {}
   const sponsorship = state.sponsorship?.data || null
+  const sponsorshipSourceType =
+    state.sponsorship?.sourceType ||
+    (state.sponsorship?.usedFallback ? "sponsor" : "sponsorship")
   const registeredNames = Array.isArray(state.names) ? state.names : []
   const sponsorNames = Array.isArray(sponsorship?.names)
     ? sponsorship.names
@@ -2564,10 +3105,6 @@ const buildBoardAccountInspectorHtml = () => {
         .map((tx, index) => buildBoardAccountTransactionEntryHtml(tx, index))
         .join("")
     : ""
-  const formattedBalance = formatBoardAccountBalance(state.balance)
-  const balanceDisplayHtml = formattedBalance
-    ? `${qEscapeHtml(formattedBalance)} QORT`
-    : qEscapeHtml("n/a")
 
   const identityStatsHtml = `
     <div class="account-stat-grid">
@@ -2585,7 +3122,23 @@ const buildBoardAccountInspectorHtml = () => {
       </div>
       <div class="account-stat-card">
         <span class="account-stat-label">Balance</span>
-        <span class="account-stat-value">${balanceDisplayHtml}</span>
+        <span class="account-stat-value account-stat-value--balance">
+          ${buildBoardAccountBalanceHtml(state.balance, {
+            includeUnit: true,
+            className: "account-balance-display",
+          })}
+        </span>
+      </div>
+      <div class="account-stat-card account-stat-card--wide">
+        <span class="account-stat-label">First transaction date</span>
+        <div
+          id="account-first-transaction-value"
+          class="${qEscapeAttr(
+            getBoardAccountFirstTransactionValueClassName()
+          )}"
+        >
+          ${buildBoardAccountFirstTransactionValueHtml()}
+        </div>
       </div>
       <div class="account-stat-card">
         <span class="account-stat-label">Blocks minted</span>
@@ -2667,7 +3220,11 @@ const buildBoardAccountInspectorHtml = () => {
         </div>
       </div>
       <p class="account-note">
-        NOTE - Sponsorship and Sponsee information is there for historic purposes and to help in decision-making. Qortal no longer makes use of the sponsorship method of the past, so the information is only relevant to see long-term past historic sponsor information.
+        ${
+          sponsorshipSourceType === "sponsor"
+            ? "Sponsor details are shown here. This account's direct sponsorship profile was empty, so the explorer is displaying the sponsor-side record for the account that sponsored it."
+            : "Sponsorship details are shown here. This account acted as a sponsor, so the explorer is displaying its historic sponsee totals and related sponsor history."
+        }
       </p>
     `
     : `
@@ -2682,8 +3239,21 @@ const buildBoardAccountInspectorHtml = () => {
   )
   const sponsorNamesHtml = buildBoardAccountChipListHtml(
     sponsorNames,
-    "No historic sponsee names were returned."
+    sponsorshipSourceType === "sponsor"
+      ? "No sponsor-side names were returned."
+      : "No sponsored account names were returned."
   )
+  const sponsorshipSectionTitle =
+    sponsorshipSourceType === "sponsor"
+      ? "Sponsor details"
+      : sponsorship
+      ? "Sponsorship details"
+      : "Historic sponsorship"
+  const sponsorshipSectionSubtitle = sponsorship
+    ? sponsorshipSourceType === "sponsor"
+      ? "Data from this account's sponsor is shown here because the direct sponsorship profile was empty."
+      : "This account was a sponsor. Historic sponsee totals and related names are shown here."
+    : "No sponsorship profile was returned for this account. Transaction history is still shown below when available."
 
   return `
     <div class="account-modal-shell">
@@ -2712,18 +3282,28 @@ const buildBoardAccountInspectorHtml = () => {
       )}
 
       ${buildBoardAccountCardSection(
-        "Historic sponsorship",
-        state.sponsorship?.usedFallback
-          ? "Fallback sponsor-side data was used because the direct sponsorship profile was empty."
-          : "Historic sponsorship data and sponsee totals, useful for long-term context.",
+        "MINTER group",
+        "Current membership status and any prior enforcement history for the MINTER group.",
+        buildBoardAccountMinterGroupStatusHtml(state.minterGroupStatus || {})
+      )}
+
+      ${buildBoardAccountCardSection(
+        sponsorshipSectionTitle,
+        sponsorshipSectionSubtitle,
         `
           ${sponsorshipStatsHtml}
           <div class="account-chip-block">
-            <h4 class="account-chip-block-title">Historic sponsee names</h4>
+            <h4 class="account-chip-block-title">${
+              sponsorshipSourceType === "sponsor"
+                ? "Sponsor account names"
+                : "Sponsored account names"
+            }</h4>
             ${sponsorNamesHtml}
           </div>
         `
       )}
+
+      ${buildBoardAccountAssetBalancesSectionHtml()}
 
       ${buildBoardAccountCardSection(
         "Recent TX History",
@@ -2780,6 +3360,23 @@ const openBoardAccountInspector = async (rawIdentity, rawAddress = "") => {
     "Loading account data..."
   )
   boardAccountInspectorState.balance = null
+  boardAccountInspectorState.addressInfo = null
+  boardAccountInspectorState.names = []
+  boardAccountInspectorState.sponsorship = null
+  boardAccountInspectorState.minterGroupStatus = null
+  boardAccountInspectorState.assetBalances = []
+  boardAccountInspectorState.assetBalancesExpanded = false
+  boardAccountInspectorState.assetBalancesLoaded = false
+  boardAccountInspectorState.assetBalancesLoading = false
+  boardAccountInspectorState.assetBalancesError = ""
+  boardAccountInspectorState.firstTransaction = null
+  boardAccountInspectorState.firstTransactionLoading = true
+  boardAccountInspectorState.firstTransactionError = ""
+  boardAccountInspectorState.transactions = []
+  boardAccountInspectorState.txOffset = 0
+  boardAccountInspectorState.txHasMore = false
+  boardAccountInspectorState.txLoadingMore = false
+  boardAccountInspectorState.txLoadingAll = false
 
   const resolvedIdentity = await resolveBoardAccountIdentity(
     rawIdentity,
@@ -2809,7 +3406,7 @@ const openBoardAccountInspector = async (rawIdentity, rawAddress = "") => {
   }
 
   const txLimit = boardAccountInspectorState.txLimit || 200
-  const [addressInfo, balance, names, sponsorship, transactions] =
+  const [addressInfo, balance, names, sponsorship, minterGroupStatus, transactions] =
     await Promise.all([
       (typeof getAddressInfoCached === "function"
         ? getAddressInfoCached(resolvedIdentity.address)
@@ -2822,7 +3419,17 @@ const openBoardAccountInspector = async (rawIdentity, rawAddress = "") => {
       getBoardAccountSponsorshipInfo(resolvedIdentity.address).catch(() => ({
         data: null,
         usedFallback: false,
+        sourceType: "none",
       })),
+      getBoardAccountMinterGroupStatus(resolvedIdentity.address).catch(
+        () => ({
+          isInMinterGroup: false,
+          previouslyKicked: false,
+          previouslyBanned: false,
+          hasHistory: false,
+          currentGroup: null,
+        })
+      ),
       getBoardAccountTransactions(resolvedIdentity.address, 0, txLimit).catch(
         () => []
       ),
@@ -2842,6 +3449,14 @@ const openBoardAccountInspector = async (rawIdentity, rawAddress = "") => {
   boardAccountInspectorState.sponsorship = sponsorship || {
     data: null,
     usedFallback: false,
+    sourceType: "none",
+  }
+  boardAccountInspectorState.minterGroupStatus = minterGroupStatus || {
+    isInMinterGroup: false,
+    previouslyKicked: false,
+    previouslyBanned: false,
+    hasHistory: false,
+    currentGroup: null,
   }
   boardAccountInspectorState.transactions = Array.isArray(transactions)
     ? transactions
@@ -2854,6 +3469,7 @@ const openBoardAccountInspector = async (rawIdentity, rawAddress = "") => {
 
   modalContent.innerHTML = buildBoardAccountInspectorHtml()
   attachBoardAccountTransactionFlowHandlers(modalContent)
+  void loadBoardAccountFirstTransactionInfo(resolvedIdentity.address)
   modalContent.scrollTop = 0
 }
 
@@ -2909,6 +3525,124 @@ const updateBoardAccountInspectorTransactionSection = () => {
       )
     }
   })
+}
+
+const updateBoardAccountAssetBalancesSection = () => {
+  const bodyEl = document.getElementById("account-asset-balances-body")
+  if (!bodyEl) {
+    return
+  }
+
+  bodyEl.innerHTML = buildBoardAccountAssetBalancesBodyHtml()
+}
+
+const loadBoardAccountFirstTransactionInfo = async (address) => {
+  const normalizedAddress = String(address ?? "").trim()
+  if (!normalizedAddress) {
+    boardAccountInspectorState.firstTransactionLoading = false
+    updateBoardAccountFirstTransactionSection()
+    return
+  }
+
+  const requestId = boardAccountInspectorState.requestId
+  boardAccountInspectorState.firstTransactionLoading = true
+  boardAccountInspectorState.firstTransactionError = ""
+  updateBoardAccountFirstTransactionSection()
+
+  try {
+    const firstTransaction = await getBoardAccountFirstTransactionInfo(
+      normalizedAddress
+    )
+
+    if (requestId !== boardAccountInspectorState.requestId) {
+      return
+    }
+
+    if (firstTransaction?.error) {
+      boardAccountInspectorState.firstTransaction = null
+      boardAccountInspectorState.firstTransactionError =
+        "Unable to load first transaction date."
+    } else {
+      boardAccountInspectorState.firstTransaction =
+        firstTransaction?.hasTransaction ? firstTransaction : null
+      boardAccountInspectorState.firstTransactionError = ""
+    }
+  } finally {
+    if (requestId === boardAccountInspectorState.requestId) {
+      boardAccountInspectorState.firstTransactionLoading = false
+      updateBoardAccountFirstTransactionSection()
+    }
+  }
+}
+
+const loadBoardAccountAssetBalances = async () => {
+  if (
+    boardAccountInspectorState.assetBalancesLoading ||
+    !boardAccountInspectorState.address
+  ) {
+    return
+  }
+
+  const requestId = boardAccountInspectorState.requestId
+  boardAccountInspectorState.assetBalancesExpanded = true
+  boardAccountInspectorState.assetBalancesLoading = true
+  boardAccountInspectorState.assetBalancesError = ""
+  updateBoardAccountAssetBalancesSection()
+
+  try {
+    const balances = await getBoardAccountAssetBalances(
+      boardAccountInspectorState.address
+    )
+    if (requestId !== boardAccountInspectorState.requestId) {
+      return
+    }
+
+    boardAccountInspectorState.assetBalances = Array.isArray(balances)
+      ? balances
+      : []
+    boardAccountInspectorState.assetBalancesLoaded = true
+  } catch (error) {
+    if (requestId !== boardAccountInspectorState.requestId) {
+      return
+    }
+
+    boardAccountInspectorState.assetBalances = []
+    boardAccountInspectorState.assetBalancesLoaded = false
+    boardAccountInspectorState.assetBalancesError =
+      "Unable to load asset balances right now."
+    console.error("Unable to load asset balances:", error)
+  } finally {
+    if (requestId === boardAccountInspectorState.requestId) {
+      boardAccountInspectorState.assetBalancesLoading = false
+      updateBoardAccountAssetBalancesSection()
+    }
+  }
+}
+
+const toggleBoardAccountAssetBalances = async () => {
+  if (boardAccountInspectorState.assetBalancesLoading) {
+    return
+  }
+
+  const shouldCollapse =
+    boardAccountInspectorState.assetBalancesExpanded &&
+    boardAccountInspectorState.assetBalancesLoaded &&
+    !boardAccountInspectorState.assetBalancesError
+
+  if (shouldCollapse) {
+    boardAccountInspectorState.assetBalancesExpanded = false
+    updateBoardAccountAssetBalancesSection()
+    return
+  }
+
+  boardAccountInspectorState.assetBalancesExpanded = true
+
+  if (!boardAccountInspectorState.assetBalancesLoaded) {
+    await loadBoardAccountAssetBalances()
+    return
+  }
+
+  updateBoardAccountAssetBalancesSection()
 }
 
 const appendBoardAccountTransactionsPage = (nextPage = []) => {
@@ -3067,6 +3801,45 @@ const canCurrentUserEditPublishedCard = async (
   return false
 }
 
+const resolveBoardCommentVoterInfo = async (commenterIdentity, voterMap) => {
+  const rawIdentity = String(commenterIdentity || "").trim()
+  if (!rawIdentity || !(voterMap instanceof Map) || voterMap.size === 0) {
+    return null
+  }
+
+  const normalizedIdentity = rawIdentity.toLowerCase()
+  const directMatch =
+    voterMap.get(rawIdentity) || voterMap.get(normalizedIdentity)
+  if (directMatch) {
+    return directMatch
+  }
+
+  const qortalAddressPattern = /^Q[A-Za-z0-9]{33}$/
+  if (qortalAddressPattern.test(rawIdentity)) {
+    return directMatch || null
+  }
+
+  if (typeof fetchOwnerAddressFromNameCached === "function") {
+    let resolvedAddress = boardCommentVoterAddressCache.get(normalizedIdentity)
+    if (typeof resolvedAddress === "undefined") {
+      resolvedAddress = await fetchOwnerAddressFromNameCached(rawIdentity).catch(
+        () => ""
+      )
+      boardCommentVoterAddressCache.set(normalizedIdentity, resolvedAddress || "")
+    }
+
+    if (resolvedAddress) {
+      return (
+        voterMap.get(resolvedAddress) ||
+        voterMap.get(String(resolvedAddress).toLowerCase()) ||
+        null
+      )
+    }
+  }
+
+  return null
+}
+
 const scrollBoardCommentsToBottom = async (cardIdentifier) => {
   const commentsContainer = document.getElementById(
     `comments-container-${cardIdentifier}`
@@ -3222,11 +3995,34 @@ const normalizeBoardPublishProgressSteps = (steps = []) =>
         )
           ? normalizedStatus
           : "pending"
+        const normalizedSubsteps = Array.isArray(step?.substeps)
+          ? step.substeps
+              .map((substep) => {
+                if (substep === null || typeof substep === "undefined") {
+                  return ""
+                }
+                if (
+                  typeof substep === "string" ||
+                  typeof substep === "number" ||
+                  typeof substep === "boolean"
+                ) {
+                  return String(substep).trim()
+                }
+                if (typeof substep === "object") {
+                  return String(
+                    substep.label || substep.detail || substep.text || ""
+                  ).trim()
+                }
+                return String(substep).trim()
+              })
+              .filter(Boolean)
+          : []
 
         return {
           key: String(step?.key || `step-${index}`),
           label: String(step?.label || `Step ${index + 1}`),
           detail: String(step?.detail || ""),
+          substeps: normalizedSubsteps,
           status,
         }
       })
@@ -3281,6 +4077,7 @@ const buildBoardPublishProgressStepHtml = (step = {}, index = 0) => {
     status === "active"
       ? `<span class="board-loading-inline publish-progress-step-spinner" role="status" aria-live="polite" aria-busy="true"><span class="board-loading-spinner board-loading-spinner-inline" aria-hidden="true"></span><span>Working...</span></span>`
       : ""
+  const substeps = Array.isArray(step.substeps) ? step.substeps : []
 
   return `
     <div class="publish-progress-step publish-progress-step--${qEscapeAttr(
@@ -3298,6 +4095,20 @@ const buildBoardPublishProgressStepHtml = (step = {}, index = 0) => {
             ? `<span class="publish-progress-step-detail">${qEscapeHtml(
                 step.detail
               )}</span>`
+            : ""
+        }
+        ${
+          substeps.length > 0
+            ? `<ul class="publish-progress-step-bullets">
+                ${substeps
+                  .map(
+                    (substep) =>
+                      `<li class="publish-progress-step-bullet">${qEscapeHtml(
+                        substep
+                      )}</li>`
+                  )
+                  .join("")}
+              </ul>`
             : ""
         }
       </div>
@@ -3674,9 +4485,10 @@ const fetchAllInviteTransactions = async (force = false) => {
 
   const inviteTxType = "GROUP_INVITE"
 
-  let allInviteTx = []
+  let confirmedInviteTxs = []
+  let pendingInviteTxs = []
   try {
-    allInviteTx = await searchTransactions({
+    confirmedInviteTxs = await searchTransactions({
       txTypes: [inviteTxType],
       confirmationStatus: "CONFIRMED",
       limit: 0,
@@ -3691,8 +4503,18 @@ const fetchAllInviteTransactions = async (force = false) => {
     console.warn("Unable to fetch invite transactions:", error)
   }
 
-  const { finalTx: finalInviteTxs, pendingTx: pendingInviteTxs } =
-    partitionTransactions(Array.isArray(allInviteTx) ? allInviteTx : [])
+  try {
+    const allPendingTxs = await searchPendingTransactions(0, 0, true)
+    pendingInviteTxs = Array.isArray(allPendingTxs)
+      ? allPendingTxs.filter((tx) => tx.type === inviteTxType)
+      : []
+  } catch (error) {
+    console.warn("Unable to fetch pending invite transactions:", error)
+  }
+
+  const { finalTx: finalInviteTxs } = partitionTransactions(
+    Array.isArray(confirmedInviteTxs) ? confirmedInviteTxs : []
+  )
 
   console.log("Final InviteTxs:", finalInviteTxs)
   console.log("Pending InviteTxs:", pendingInviteTxs)

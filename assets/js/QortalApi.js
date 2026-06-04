@@ -22,6 +22,10 @@ if (qSilenceConsole && typeof console !== "undefined") {
 const nameInfoCache = new Map() // name -> nameInfo
 const addressInfoCache = new Map() // address -> addressInfo
 const pollResultsCache = new Map() // pollName -> pollResults
+const publicKeyAddressCache = new Map() // publicKey -> address
+const addressNamesCache = new Map() // address -> first registered name
+const groupInvitesByAddressCache = new Map() // address -> invites
+const GROUP_INVITES_BY_ADDRESS_CACHE_TTL_MS = 15000
 
 const clearPollResultsCache = () => {
   pollResultsCache.clear()
@@ -231,7 +235,7 @@ const userState = {
 
 const validateQortalAddress = async (address) => {
   // Regular expression to match Qortal addresses
-  const qortalAddressRegex = /^Q[a-zA-Z0-9]{32}$/
+  const qortalAddressRegex = /^Q[a-zA-Z0-9]{33}$/
   // Test the address against the regex
   return qortalAddressRegex.test(address)
 }
@@ -296,6 +300,49 @@ const getAddressBalance = async (address) => {
   } catch (error) {
     console.error("Error fetching account balance:", error)
     return null
+  }
+}
+
+const getAddressAssetBalances = async (address) => {
+  const qortalAddressPattern = /^Q[A-Za-z0-9]{33}$/
+  const normalizedAddress = String(address || "").trim()
+
+  if (!qortalAddressPattern.test(normalizedAddress)) {
+    console.warn(
+      `Not a valid Qortal address format for asset balance lookup: ${normalizedAddress}`
+    )
+    return []
+  }
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/assets/balances?address=${encodeURIComponent(
+        normalizedAddress
+      )}&ordering=ASSET_BALANCE_ACCOUNT&limit=0`,
+      {
+        headers: { Accept: "application/json" },
+        method: "GET",
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(
+        `Failed to fetch asset balances: HTTP ${response.status}, ${errorText}`
+      )
+    }
+
+    const data = await response.json()
+    if (Array.isArray(data)) {
+      return data
+    }
+    if (Array.isArray(data?.balances)) {
+      return data.balances
+    }
+    return []
+  } catch (error) {
+    console.error("Error fetching asset balances:", error)
+    return []
   }
 }
 
@@ -517,16 +564,31 @@ const getPublicKeyFromAddress = async (address) => {
 }
 
 const getAddressFromPublicKey = async (publicKey) => {
+  const normalizedPublicKey = String(publicKey || "").trim()
+  if (!normalizedPublicKey) {
+    return null
+  }
+
+  if (publicKeyAddressCache.has(normalizedPublicKey)) {
+    return publicKeyAddressCache.get(normalizedPublicKey)
+  }
+
   try {
-    const response = await fetch(`${baseUrl}/addresses/convert/${publicKey}`, {
+    const response = await fetch(
+      `${baseUrl}/addresses/convert/${normalizedPublicKey}`,
+      {
       method: "GET",
       headers: { Accept: "text/plain" },
-    })
+      }
+    )
     const address = await response.text()
+    const normalizedAddress = String(address || "").trim() || null
+    publicKeyAddressCache.set(normalizedPublicKey, normalizedAddress)
 
-    return address
+    return normalizedAddress
   } catch (error) {
     console.log("Error converting public key to address:", error)
+    publicKeyAddressCache.set(normalizedPublicKey, null)
     return null
   }
 }
@@ -569,19 +631,32 @@ const login = async () => {
 }
 
 const getNameFromAddress = async (address) => {
+  const normalizedAddress = String(address || "").trim()
+  if (!normalizedAddress) {
+    return ""
+  }
+
+  if (addressNamesCache.has(normalizedAddress)) {
+    return addressNamesCache.get(normalizedAddress)
+  }
+
   try {
     const response = await fetch(
-      `${baseUrl}/names/address/${address}?limit=20`,
+      `${baseUrl}/names/address/${normalizedAddress}?limit=20`,
       {
         method: "GET",
         headers: { Accept: "application/json" },
       }
     )
     const names = await response.json()
-    return names.length > 0 ? names[0].name : address // Return name if found, else return address
+    const resolvedName =
+      Array.isArray(names) && names.length > 0 ? names[0].name : normalizedAddress
+    addressNamesCache.set(normalizedAddress, resolvedName)
+    return resolvedName // Return name if found, else return address
   } catch (error) {
-    console.error(`Error fetching names for address ${address}:`, error)
-    return address
+    console.error(`Error fetching names for address ${normalizedAddress}:`, error)
+    addressNamesCache.set(normalizedAddress, normalizedAddress)
+    return normalizedAddress
   }
 }
 
@@ -787,6 +862,42 @@ const fetchGroupInvitesByAddress = async (address) => {
   }
 }
 
+const fetchGroupInvitesByAddressCached = async (address, force = false) => {
+  const normalizedAddress = String(address || "").trim()
+  if (!normalizedAddress) {
+    return []
+  }
+
+  const now = Date.now()
+  const cached = groupInvitesByAddressCache.get(normalizedAddress)
+  const isStale =
+    !cached || now - cached.timestamp > GROUP_INVITES_BY_ADDRESS_CACHE_TTL_MS
+
+  if (!force && cached && !isStale) {
+    return cached.data
+  }
+
+  try {
+    const invites = await fetchGroupInvitesByAddress(normalizedAddress)
+    const normalizedInvites = Array.isArray(invites) ? invites : []
+    groupInvitesByAddressCache.set(normalizedAddress, {
+      timestamp: now,
+      data: normalizedInvites,
+    })
+    return normalizedInvites
+  } catch (error) {
+    groupInvitesByAddressCache.set(normalizedAddress, {
+      timestamp: now,
+      data: [],
+    })
+    throw error
+  }
+}
+
+const clearGroupInvitesByAddressCache = () => {
+  groupInvitesByAddressCache.clear()
+}
+
 // QDN data calls --------------------------------------------------------------------------------------------------
 const searchLatestDataByIdentifier = async (identifier) => {
   try {
@@ -824,8 +935,10 @@ const publishMultipleResources = async (
   try {
     const response = await qortalRequest(request)
     console.log("Multiple resources published successfully:", response)
+    return response
   } catch (error) {
     console.error("Error publishing multiple resources:", error)
+    return null
   }
 }
 
@@ -1524,30 +1637,88 @@ const getPollPublisherPublicKey = async (pollName) => {
   }
 }
 
-const fetchPollResultsCached = async (pollName) => {
-  if (pollResultsCache.has(pollName)) {
-    return await pollResultsCache.get(pollName)
-  }
-  const pollResultsPromise = fetchPollResults(pollName).then((result) => {
-    pollResultsCache.set(pollName, Promise.resolve(result))
-    return result
+const POLL_RESULTS_FETCH_RETRY_ATTEMPTS = 10
+const POLL_RESULTS_FETCH_RETRY_DELAY_MS = 500
+const POLL_RESULTS_FETCH_RETRY_DELAY_CAP_MS = 5000
+
+const fetchPollResultsOnce = async (pollName) => {
+  const response = await fetch(`${baseUrl}/polls/votes/${pollName}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
   })
-  pollResultsCache.set(pollName, pollResultsPromise)
-  return await pollResultsPromise
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "")
+    throw new Error(
+      `HTTP ${response.status}${errorText ? `, ${errorText}` : ""}`
+    )
+  }
+
+  const pollData = await response.json()
+  if (!pollData || typeof pollData !== "object") {
+    throw new Error("Poll results response was empty or invalid.")
+  }
+
+  return pollData
 }
 
 const fetchPollResults = async (pollName) => {
-  try {
-    const response = await fetch(`${baseUrl}/polls/votes/${pollName}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    })
-    const pollData = await response.json()
-    return pollData
-  } catch (error) {
-    console.error(`Error fetching poll results for ${pollName}:`, error)
+  const normalizedPollName = String(pollName || "").trim()
+  if (!normalizedPollName) {
     return null
   }
+
+  let lastError = null
+  for (
+    let attempt = 1;
+    attempt <= POLL_RESULTS_FETCH_RETRY_ATTEMPTS;
+    attempt++
+  ) {
+    try {
+      return await fetchPollResultsOnce(normalizedPollName)
+    } catch (error) {
+      lastError = error
+      if (attempt < POLL_RESULTS_FETCH_RETRY_ATTEMPTS) {
+        const retryDelayMs = Math.min(
+          POLL_RESULTS_FETCH_RETRY_DELAY_CAP_MS,
+          POLL_RESULTS_FETCH_RETRY_DELAY_MS * 2 ** (attempt - 1)
+        )
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, retryDelayMs)
+        )
+      }
+    }
+  }
+
+  console.error(
+    `Error fetching poll results for ${normalizedPollName}:`,
+    lastError
+  )
+  return null
+}
+
+const fetchPollResultsCached = async (pollName) => {
+  const normalizedPollName = String(pollName || "").trim()
+  if (!normalizedPollName) {
+    return null
+  }
+
+  if (pollResultsCache.has(normalizedPollName)) {
+    return await pollResultsCache.get(normalizedPollName)
+  }
+
+  const pollResultsPromise = fetchPollResults(normalizedPollName).then(
+    (result) => {
+      if (result) {
+        pollResultsCache.set(normalizedPollName, Promise.resolve(result))
+      } else {
+        pollResultsCache.delete(normalizedPollName)
+      }
+      return result
+    }
+  )
+  pollResultsCache.set(normalizedPollName, pollResultsPromise)
+  return await pollResultsPromise
 }
 
 // Vote YES on a poll ------------------------------

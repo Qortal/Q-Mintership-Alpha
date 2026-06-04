@@ -1,14 +1,7 @@
 let currentMinterToolPage = "overview" // Track the current page
 
 const loadMinterAdminToolsPage = async () => {
-  // Remove all body content except for menu elements
-  const bodyChildren = document.body.children
-  for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i]
-    if (!child.classList.contains("menu")) {
-      child.remove()
-    }
-  }
+  clearQMintershipBodyContent()
 
   const avatarUrl = `/arbitrary/THUMBNAIL/${userState.accountName}/qortal_avatar`
 

@@ -90,16 +90,9 @@ const loadAdminBoardPage = async () => {
   if (typeof detachAdminBoardInfiniteScroll === "function") {
     detachAdminBoardInfiniteScroll()
   }
+  qMintershipActiveBoard = "admin"
 
-  // Clear existing content on the page
-  const bodyChildren = document.body.children
-
-  for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i]
-    if (!child.classList.contains("menu")) {
-      child.remove()
-    }
-  }
+  clearQMintershipBodyContent()
 
   // Add the "Minter Board" content
   const mainContent = document.createElement("div")
@@ -1937,7 +1930,10 @@ const displayEncryptedComments = async (cardIdentifier) => {
               : ""
 
           const commenter = decryptedCommentData.creator
-          const voterInfo = voterMap.get(commenter)
+          const voterInfo =
+            typeof resolveBoardCommentVoterInfo === "function"
+              ? await resolveBoardCommentVoterInfo(commenter, voterMap)
+              : voterMap.get(commenter)
 
           const commentClasses = ["comment"]
           const commentStyles = []
@@ -2719,7 +2715,7 @@ const createEncryptedCardHTML = async (
   }
 
   return `
-    <div class="admin-card ${userVoteStateClass}" style="background-color: ${cardColorCode}">
+    <div id="card-shell-${qEscapeAttr(cardIdentifier)}" class="admin-card ${userVoteStateClass}" style="background-color: ${cardColorCode}">
       ${editButtonHtml}
       <div class="admin-card-header minter-card-header">
         ${identityBoxesHtml}
@@ -2737,7 +2733,14 @@ const createEncryptedCardHTML = async (
     <div class="results-header support-header"><h5>CURRENT SUPPORT RESULTS</h5></div>
     <div class="admin-card-results minter-card-results">
       <button onclick="togglePollDetails('${cardIdentifier}')">Display Poll Details</button>
-      <div id="poll-details-${cardIdentifier}" style="display: none;">
+      <div
+        id="poll-details-${cardIdentifier}"
+        style="display: none;"
+        data-poll-name="${qEscapeAttr(poll || "")}"
+        data-nominee-name="${qEscapeAttr(minterName || creator || "")}"
+        data-card-identifier="${qEscapeAttr(cardIdentifier || "")}"
+        data-details-loaded="${detailsHtml ? "false" : "true"}"
+      >
         ${detailsHtml}
       </div>
       ${showRemoveHtml}

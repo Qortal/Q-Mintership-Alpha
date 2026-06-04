@@ -56,6 +56,7 @@ const minterBoardUpdateState = {
   cardSnapshot: new Map(),
   commentSnapshot: new Map(),
   pollSnapshot: new Map(),
+  inviteSnapshot: new Map(),
   pending: null,
 }
 const minterBoardNotificationSettingsCache = {
@@ -109,16 +110,10 @@ const loadMinterBoardPage = async () => {
   if (typeof detachMinterBoardInfiniteScroll === "function") {
     detachMinterBoardInfiniteScroll()
   }
+  qMintershipActiveBoard = "minter"
   stopMinterBoardBackgroundUpdateChecks()
 
-  // Clear existing content on the page
-  const bodyChildren = document.body.children
-  for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i]
-    if (!child.classList.contains("menu")) {
-      child.remove()
-    }
-  }
+  clearQMintershipBodyContent()
 
   // Add the "Minter Board" content
   const mainContent = document.createElement("div")
@@ -1061,6 +1056,48 @@ const rememberMinterBoardPollSnapshot = (pollName, pollResults = null) => {
   )
 }
 
+const getMinterBoardInviteSignature = (inviteState = {}) => {
+  const displayStatus = getMinterBoardInviteDisplayStatus(inviteState)
+  const hasApprovedInvite = Boolean(inviteState?.hasApprovedInvite)
+  const hasPendingInvite = Boolean(inviteState?.hasPendingInvite)
+  const hasGroupApproval = Boolean(inviteState?.hasGroupApproval)
+  const isExistingMinter = Boolean(inviteState?.isExistingMinter)
+  return `${displayStatus || "none"}:${hasApprovedInvite ? 1 : 0}:${
+    hasPendingInvite ? 1 : 0
+  }:${hasGroupApproval ? 1 : 0}:${isExistingMinter ? 1 : 0}`
+}
+
+const rememberMinterBoardInviteSnapshot = (
+  cardIdentifier,
+  inviteState = {}
+) => {
+  const normalizedIdentifier = String(cardIdentifier || "").trim()
+  if (!normalizedIdentifier) return
+  minterBoardUpdateState.inviteSnapshot.set(
+    normalizedIdentifier,
+    getMinterBoardInviteSignature(inviteState)
+  )
+}
+
+const getMinterBoardInviteDisplayStatus = (inviteState = {}) => {
+  if (inviteState?.isExistingMinter) {
+    return "existing"
+  }
+  if (inviteState?.hasBanned) {
+    return "banned"
+  }
+  if (inviteState?.hasKicked) {
+    return "kicked"
+  }
+  if (inviteState?.hasApprovedInvite && !inviteState?.hasPendingInvite) {
+    return "invited"
+  }
+  if (inviteState?.hasPendingInvite) {
+    return "pending"
+  }
+  return ""
+}
+
 const hideMinterBoardUpdateBanner = () => {
   minterBoardUpdateState.pending = null
   const banner = document.getElementById("board-update-banner")
@@ -1094,6 +1131,14 @@ const showMinterBoardUpdateBanner = (summary = {}) => {
   if (pollCards > 0) {
     dataTypes.push(
       `vote updates on ${pollCards} card${pollCards === 1 ? "" : "s"}`
+    )
+  }
+  const inviteCards = Number(summary.inviteCards || 0)
+  if (inviteCards > 0) {
+    dataTypes.push(
+      `invite status updates on ${inviteCards} card${
+        inviteCards === 1 ? "" : "s"
+      }`
     )
   }
 
@@ -1236,12 +1281,123 @@ const checkMinterBoardForUpdates = async () => {
     })
     await runWithConcurrency(pollTasks, 4)
 
-    if (newCards > 0 || updatedCards > 0 || commentCards > 0 || pollCards > 0) {
+    const knownInviteCards = Array.from(
+      new Set(
+        minterBoardInfiniteState.cards
+          .map((card) => String(card?.identifier || "").trim())
+          .filter(Boolean)
+          .filter((cardIdentifier) =>
+            document.body.contains(
+              document.getElementById(`card-shell-${cardIdentifier}`)
+            )
+          )
+          .filter((cardIdentifier) => {
+            const cardData =
+              minterBoardCardDataByIdentifier.get(cardIdentifier) || {}
+            return cardData._inviteEligible === true
+          })
+      )
+    ).map((cardIdentifier) => {
+      const cardResource = minterBoardInfiniteState.cards.find(
+        (card) => String(card?.identifier || "").trim() === cardIdentifier
+      )
+      const cardData = minterBoardCardDataByIdentifier.get(cardIdentifier) || {}
+      return {
+        cardIdentifier,
+        cardResource,
+        cardData,
+        nomineeAddress: String(
+          getCardNomineeAddress(cardData, cardResource?.name || "") ||
+            cardData?.nomineeAddress ||
+            ""
+        ).trim(),
+        nomineeName: String(
+          getCardNomineeName(cardData, cardResource?.name || "") ||
+            cardData?.nominee ||
+            cardResource?.name ||
+            ""
+        ).trim(),
+      }
+    })
+    let inviteCards = 0
+    const changedInviteCards = []
+    const inviteTasks = knownInviteCards.map(
+      ({ cardIdentifier, nomineeAddress, nomineeName }) => {
+        return async () => {
+          const liveInviteState = await resolveMinterBoardListTimelineState(
+            nomineeAddress,
+            nomineeName,
+            false
+          )
+          const nextSignature = getMinterBoardInviteSignature(liveInviteState)
+          const previousSignature =
+            minterBoardUpdateState.inviteSnapshot.get(cardIdentifier)
+          if (previousSignature && previousSignature !== nextSignature) {
+            inviteCards += 1
+            changedInviteCards.push(cardIdentifier)
+          }
+          minterBoardUpdateState.inviteSnapshot.set(
+            cardIdentifier,
+            nextSignature
+          )
+        }
+      }
+    )
+    await runWithConcurrency(inviteTasks, 4)
+
+    if (changedInviteCards.length > 0) {
+      await runWithConcurrency(
+        changedInviteCards.map((cardIdentifier) => {
+          return async () => {
+            const root = document.getElementById(`card-shell-${cardIdentifier}`)
+            if (!root || !document.body.contains(root)) {
+              return
+            }
+            const cardResource = minterBoardInfiniteState.cards.find(
+              (card) => String(card?.identifier || "").trim() === cardIdentifier
+            )
+            const cardData = minterBoardCardDataByIdentifier.get(cardIdentifier)
+            if (!cardResource || !cardData) {
+              return
+            }
+            const nomineeAddressValue = String(
+              cardData?.nomineeAddress ||
+                getCardNomineeAddress(cardData, cardResource?.name || "") ||
+                ""
+            ).trim()
+            const isExistingMinter = Array.isArray(cachedMinterGroup)
+              ? cachedMinterGroup.some(
+                  (member) =>
+                    String(member?.member || "").trim() === nomineeAddressValue
+                )
+              : false
+            await hydrateMinterBoardCardDisplay({
+              cardResource,
+              cardData,
+              cardIdentifier,
+              isExistingMinter,
+              loadToken: minterBoardInfiniteState.loadToken,
+              forceTimelineRefresh: true,
+            })
+          }
+        }),
+        2
+      )
+    }
+
+    if (
+      newCards > 0 ||
+      updatedCards > 0 ||
+      commentCards > 0 ||
+      pollCards > 0 ||
+      inviteCards > 0
+    ) {
       showMinterBoardUpdateBanner({
         cards: newCards,
         updatedCards,
         commentCards,
         pollCards,
+        inviteCards,
       })
     }
   } catch (error) {
@@ -1269,6 +1425,7 @@ const stopMinterBoardBackgroundUpdateChecks = () => {
 
 const loadMinterBoardDetectedUpdates = async () => {
   hideMinterBoardUpdateBanner()
+  clearMinterBoardInviteStateCaches()
   await initializeCachedGroups()
   await loadCards(minterCardIdentifierPrefix, true)
 }
@@ -2024,6 +2181,32 @@ const buildMinterCardNotificationButtonHtml = (cardIdentifier) => `
     <span class="mobi-mbri-alert" aria-hidden="true"></span>
   </button>
 `
+
+const buildMinterBoardShareLinkButtonHtml = ({
+  cardIdentifier = "",
+  variant = "card",
+} = {}) => {
+  const isListVariant = variant === "list"
+  const visibleLabel = isListVariant ? "Copy link" : "Link"
+  return `
+    <button
+      type="button"
+      class="card-link-button ${
+        isListVariant ? "card-link-button--list" : "card-link-button--card"
+      }"
+      data-share-card-identifier="${qEscapeAttr(cardIdentifier)}"
+      data-original-title="Copy share link"
+      title="Copy share link"
+      aria-label="Copy share link"
+      onclick="copyMinterBoardCardLink(this)"
+    >
+      <span class="mobi-mbri-link" aria-hidden="true"></span>
+      <span class="card-link-button-label ${
+        isListVariant ? "" : "card-link-button-label--card"
+      }">${qEscapeHtml(visibleLabel)}</span>
+    </button>
+  `
+}
 
 const hydrateMinterCardNotificationButton = async (cardIdentifier) => {
   try {
@@ -4029,9 +4212,13 @@ const loadCards = async (cardIdentifierPrefix, forceSearch = false) => {
   minterBoardUpdateState.cardSnapshot.clear()
   minterBoardUpdateState.commentSnapshot.clear()
   minterBoardUpdateState.pollSnapshot.clear()
+  minterBoardUpdateState.inviteSnapshot.clear()
   hideMinterBoardUpdateBanner()
   minterBoardCardDataByIdentifier.clear()
   commentCountCache.clear()
+  if (typeof clearMinterBoardInviteStateCaches === "function") {
+    clearMinterBoardInviteStateCaches()
+  }
 
   if (forceSearch) {
     minterBoardCardDataCache.clear()
@@ -4242,22 +4429,29 @@ const verifyMinterCached = async (nameOrAddress) => {
   return result
 }
 
-const verifyMinter = async (minterName) => {
+const verifyMinter = async (minterIdentity) => {
   try {
-    const nameInfo = await getNameInfoCached(minterName)
+    const normalizedIdentity = String(minterIdentity || "").trim()
+    if (!normalizedIdentity) return false
 
-    if (!nameInfo) return false
-    const minterAddress = nameInfo.owner
+    const qortalAddressPattern = /^Q[a-zA-Z0-9]{33}$/
+    const minterAddress = qortalAddressPattern.test(normalizedIdentity)
+      ? normalizedIdentity
+      : (await getNameInfoCached(normalizedIdentity))?.owner || ""
+
+    if (!minterAddress) return false
+
     const isValid = await getAddressInfo(minterAddress)
 
-    if (!isValid) return false
+    if (!isValid || typeof isValid !== "object" || !isValid.address) return false
+
     // Then check if they're in the minter group
     // const minterGroup = await fetchMinterGroupMembers()
-    const minterGroup = cachedMinterGroup
+    const minterGroup = Array.isArray(cachedMinterGroup) ? cachedMinterGroup : []
     // const adminGroup = await fetchMinterGroupAdmins()
-    const adminGroup = cachedMinterAdmins
-    const minterGroupAddresses = minterGroup.map((m) => m.member)
-    const adminGroupAddresses = adminGroup.map((m) => m.member)
+    const adminGroup = Array.isArray(cachedMinterAdmins) ? cachedMinterAdmins : []
+    const minterGroupAddresses = minterGroup.map((m) => String(m?.member || "").trim())
+    const adminGroupAddresses = adminGroup.map((m) => String(m?.member || "").trim())
 
     return (
       minterGroupAddresses.includes(minterAddress) ||
@@ -4291,7 +4485,8 @@ const applyVoteSortingData = async (cards, ascending = true) => {
         minterGroupMembers,
         minterAdmins,
         getCardNomineeName(cardDataResponse),
-        card.identifier
+        card.identifier,
+        { includeDetails: false }
       )
       card._adminVotes = adminYes + adminNo
       card._adminYes = adminYes
@@ -5025,8 +5220,10 @@ const processPollData = async (
   minterGroupMembers,
   minterAdmins,
   nomineeName,
-  cardIdentifier
+  cardIdentifier,
+  options = {}
 ) => {
+  const includeDetails = options?.includeDetails === true
   if (
     !pollData ||
     !Array.isArray(pollData.voteWeights) ||
@@ -5047,19 +5244,23 @@ const processPollData = async (
     }
   }
 
-  const memberAddresses = minterGroupMembers.map((m) => m.member)
-  const minterAdminAddresses = minterAdmins.map((m) => m.member)
-  const [adminGroupsMembers, featureTriggerPassed] = await Promise.all([
-    fetchAllAdminGroupsMembers(),
-    featureTriggerCheck(),
-  ])
-  const groupAdminAddresses = adminGroupsMembers.map((m) => m.member)
+  const memberAddresses = (
+    Array.isArray(minterGroupMembers) ? minterGroupMembers : []
+  ).map((m) => m.member)
+  const minterAdminAddresses = (
+    Array.isArray(minterAdmins) ? minterAdmins : []
+  ).map((m) => m.member)
+  const featureTriggerPassed = await featureTriggerCheck()
   let adminAddresses = [...minterAdminAddresses]
 
   if (!featureTriggerPassed) {
     console.log(
       `featureTrigger is NOT passed, only showing admin results from Minter Admins and Group Admins`
     )
+    const adminGroupsMembers = await fetchAllAdminGroupsMembers().catch(
+      () => []
+    )
+    const groupAdminAddresses = adminGroupsMembers.map((m) => m.member)
     adminAddresses = [...minterAdminAddresses, ...groupAdminAddresses]
   }
 
@@ -5110,20 +5311,25 @@ const processPollData = async (
       }
     }
 
-    const [nameInfo, addressInfo] = await Promise.all([
-      getNameFromAddress(voterAddress).catch((err) => {
-        console.warn(`No name for address ${voterAddress}`, err)
-        return ""
-      }),
-      getAddressInfo(voterAddress).catch((e) => {
-        console.warn(`Failed to get addressInfo for ${voterAddress}`, e)
-        return null
-      }),
-    ])
-    const voterName = nameInfo && nameInfo !== voterAddress ? nameInfo : ""
-    const blocksMinted = addressInfo?.blocksMinted || 0
     const isAdmin = adminAddresses.includes(voterAddress)
     const isMinter = memberAddresses.includes(voterAddress)
+    let voterName = ""
+    let blocksMinted = 0
+
+    if (includeDetails) {
+      const [nameInfo, addressInfo] = await Promise.all([
+        getNameFromAddress(voterAddress).catch((err) => {
+          console.warn(`No name for address ${voterAddress}`, err)
+          return ""
+        }),
+        getAddressInfo(voterAddress).catch((e) => {
+          console.warn(`Failed to get addressInfo for ${voterAddress}`, e)
+          return null
+        }),
+      ])
+      voterName = nameInfo && nameInfo !== voterAddress ? nameInfo : ""
+      blocksMinted = addressInfo?.blocksMinted || 0
+    }
 
     return {
       optionIndex,
@@ -5139,15 +5345,30 @@ const processPollData = async (
   const allVoters = await Promise.all(voterPromises)
   const yesVoters = []
   const noVoters = []
-  let totalMinterAndAdminYesWeight = 0
-  let totalMinterAndAdminNoWeight = 0
+  let totalMinterAndAdminYesWeight = Number(yesWeight || 0)
+  let totalMinterAndAdminNoWeight = Number(noWeight || 0)
 
   for (const v of allVoters) {
     if (v.optionIndex === 0) {
       yesVoters.push(v)
-      totalMinterAndAdminYesWeight += v.blocksMinted
+      if (includeDetails) {
+        totalMinterAndAdminYesWeight += v.blocksMinted
+      }
     } else if (v.optionIndex === 1) {
       noVoters.push(v)
+      if (includeDetails) {
+        totalMinterAndAdminNoWeight += v.blocksMinted
+      }
+    }
+  }
+
+  if (includeDetails) {
+    totalMinterAndAdminYesWeight = 0
+    totalMinterAndAdminNoWeight = 0
+    for (const v of yesVoters) {
+      totalMinterAndAdminYesWeight += v.blocksMinted
+    }
+    for (const v of noVoters) {
       totalMinterAndAdminNoWeight += v.blocksMinted
     }
   }
@@ -5159,23 +5380,26 @@ const processPollData = async (
   )
   await createVoterMap(sortedAllVoters, cardIdentifier)
 
-  const yesTableHtml = buildVotersTableHtml(
-    yesVoters,
-    /* tableColor= */ "green"
-  )
-  const noTableHtml = buildVotersTableHtml(noVoters, /* tableColor= */ "red")
   const safeNominee = qEscapeHtml(nomineeName)
-  const detailsHtml = `
-    <div class="poll-details-container" id="${qEscapeAttr(
-      nomineeName
-    )}-poll-details">
-      <h1 style ="color:rgb(123, 123, 85); text-align: center; font-size: 2.0rem">${safeNominee}'s</h1><h3 style="color: white; text-align: center; font-size: 1.8rem"> Support Poll Result Details</h3>
-      <h4 style="color: green; text-align: center;">Yes Vote Details</h4>
-      ${yesTableHtml}
-      <h4 style="color: red; text-align: center; margin-top: 2em;">No Vote Details</h4>
-      ${noTableHtml}
-    </div>
-  `
+  const detailsHtml = includeDetails
+    ? `
+      <div class="poll-details-container" id="${qEscapeAttr(
+        nomineeName
+      )}-poll-details">
+        <h1 style ="color:rgb(123, 123, 85); text-align: center; font-size: 2.0rem">${safeNominee}'s</h1><h3 style="color: white; text-align: center; font-size: 1.8rem"> Support Poll Result Details</h3>
+        <h4 style="color: green; text-align: center;">Yes Vote Details</h4>
+        ${buildVotersTableHtml(yesVoters, /* tableColor= */ "green")}
+        <h4 style="color: red; text-align: center; margin-top: 2em;">No Vote Details</h4>
+        ${buildVotersTableHtml(noVoters, /* tableColor= */ "red")}
+      </div>
+    `
+    : `
+      <div class="poll-details-container" id="${qEscapeAttr(
+        nomineeName
+      )}-poll-details">
+        <p class="board-progress-muted">Poll details will load when opened.</p>
+      </div>
+    `
   const totalYes = adminYes + minterYes
   const totalNo = adminNo + minterNo
 
@@ -5196,12 +5420,21 @@ const processPollData = async (
 const createVoterMap = async (voters, cardIdentifier) => {
   const voterMap = new Map()
   voters.forEach((voter) => {
-    const voterNameOrAddress = voter.voterName || voter.voterAddress
-    voterMap.set(voterNameOrAddress, {
+    const voterEntry = {
       vote: voter.optionIndex === 0 ? "yes" : "no", // Use optionIndex directly
       voterType: voter.isAdmin ? "Admin" : voter.isMinter ? "Minter" : "User",
       blocksMinted: voter.blocksMinted,
-    })
+    }
+
+    const registerIdentity = (identity) => {
+      const normalizedIdentity = String(identity || "").trim()
+      if (!normalizedIdentity) return
+      voterMap.set(normalizedIdentity, voterEntry)
+      voterMap.set(normalizedIdentity.toLowerCase(), voterEntry)
+    }
+
+    registerIdentity(voter.voterName)
+    registerIdentity(voter.voterAddress)
   })
   globalVoterMap.set(cardIdentifier, voterMap)
 }
@@ -5538,7 +5771,10 @@ const displayComments = async (cardIdentifier) => {
             typeof getBoardAccountLevel === "function"
               ? await getBoardAccountLevel(commenterName)
               : null
-          const voterInfo = voterMap.get(commenterName)
+          const voterInfo =
+            typeof resolveBoardCommentVoterInfo === "function"
+              ? await resolveBoardCommentVoterInfo(commenterName, voterMap)
+              : voterMap.get(commenterName)
           const commentClasses = ["comment"]
           const commentStyles = []
           let adminBadge = ""
@@ -5869,6 +6105,10 @@ const createModal = (modalType = "") => {
     isIframe || isAccountModal ? "1px solid rgba(157, 193, 196, 0.28)" : "none"
   const modalShadow =
     isIframe || isAccountModal ? "0 20px 60px rgba(0, 0, 0, 0.55)" : "none"
+  const closeButtonOnclick =
+    modalType === "stats-compile"
+      ? "closeStatsCompileModal()"
+      : `closeModal('${modalType}')`
 
   const modalHTML = `
     <div id="${modalType}-modal"
@@ -5901,7 +6141,7 @@ const createModal = (modalType = "") => {
                </div>`
         }
 
-        <button onclick="closeModal('${modalType}')"
+        <button onclick="${closeButtonOnclick}"
                 style="position: absolute; top: 0.55rem; right: 0.55rem;
                        z-index: 20;
                        background:rgba(0, 0, 0, 0.66); color: white; border: none;
@@ -5925,6 +6165,22 @@ const createModal = (modalType = "") => {
 
   window.addEventListener("click", (event) => {
     if (event.target === modal) {
+      if (
+        modalType === "stats-compile" &&
+        typeof window.getStatsCompileModalState === "function"
+      ) {
+        const statsModalState = window.getStatsCompileModalState()
+        if (
+          statsModalState &&
+          (statsModalState.compiling ||
+            statsModalState.phase === "progress" ||
+            statsModalState.phase === "paused")
+        ) {
+          return
+        }
+        closeStatsCompileModal()
+        return
+      }
       closeModal(modalType)
     }
   })
@@ -5967,15 +6223,145 @@ const processLink = async (link) => {
   return qSanitizeUrl(link, "")
 }
 
-const togglePollDetails = (cardIdentifier) => {
+const togglePollDetails = async (cardIdentifier) => {
   const detailsDiv = document.getElementById(`poll-details-${cardIdentifier}`)
   const modal = document.getElementById(`poll-details-modal`)
   const modalContent = document.getElementById(`poll-details-modalContent`)
 
   if (!detailsDiv || !modal || !modalContent) return
 
+  if (
+    detailsDiv.dataset.detailsLoaded !== "true" &&
+    detailsDiv.dataset.pollName
+  ) {
+    modalContent.innerHTML =
+      typeof getBoardInlineLoadingHTML === "function"
+        ? getBoardInlineLoadingHTML("Loading poll details...")
+        : "Loading poll details..."
+    modal.style.display = "block"
+
+    try {
+      const pollResults = await fetchPollResultsCached(
+        detailsDiv.dataset.pollName
+      )
+      let minterGroupMembers = cachedMinterGroup
+      if (!Array.isArray(minterGroupMembers) || minterGroupMembers.length === 0) {
+        minterGroupMembers = await fetchMinterGroupMembers().catch(() => [])
+        if (typeof cachedMinterGroup !== "undefined") {
+          cachedMinterGroup = minterGroupMembers
+        }
+      }
+      let minterAdmins = cachedMinterAdmins
+      if (getEffectiveMinterAdminCount(minterAdmins) <= 0) {
+        minterAdmins = await fetchMinterGroupAdmins().catch(() => [])
+        if (typeof cachedMinterAdmins !== "undefined") {
+          cachedMinterAdmins = minterAdmins
+        }
+      }
+      const pollDetails = await processPollData(
+        pollResults,
+        minterGroupMembers,
+        minterAdmins,
+        detailsDiv.dataset.nomineeName || "",
+        detailsDiv.dataset.cardIdentifier || cardIdentifier,
+        { includeDetails: true }
+      )
+      detailsDiv.innerHTML = pollDetails?.detailsHtml || ""
+      detailsDiv.dataset.detailsLoaded = "true"
+    } catch (error) {
+      console.warn(
+        `Unable to load poll details for ${detailsDiv.dataset.pollName}:`,
+        error
+      )
+      detailsDiv.innerHTML = `<p class="board-progress-muted">Unable to load poll details right now.</p>`
+    }
+  }
+
   modalContent.innerHTML = detailsDiv.innerHTML
   modal.style.display = "block"
+
+  window.onclick = (event) => {
+    if (event.target === modal) {
+      modal.style.display = "none"
+    }
+  }
+}
+
+const toggleGroupApprovalDetails = async (buttonEl) => {
+  if (!buttonEl) return
+
+  const cardIdentifier = String(buttonEl.dataset?.cardIdentifier || "").trim()
+  const nomineeName = String(buttonEl.dataset?.nomineeName || "").trim()
+  let nomineeAddress = String(buttonEl.dataset?.nomineeAddress || "").trim()
+  const modalType = "group-approval-details"
+
+  createModal(modalType)
+  const modal = document.getElementById(`${modalType}-modal`)
+  const modalContent = document.getElementById(`${modalType}-modalContent`)
+  if (!modal || !modalContent) return
+
+  modalContent.innerHTML =
+    typeof getBoardInlineLoadingHTML === "function"
+      ? getBoardInlineLoadingHTML("Loading GROUP_APPROVAL transactions...")
+      : "Loading GROUP_APPROVAL transactions..."
+  modal.style.display = "block"
+
+  try {
+    if (!nomineeAddress && nomineeName) {
+      nomineeAddress = await fetchOwnerAddressFromNameCached(nomineeName).catch(
+        () => ""
+      )
+    }
+
+    const relevantApprovals = nomineeAddress
+      ? await getRelevantGroupApprovalTxsForAddressCached(nomineeAddress)
+      : []
+    const { tableHtml, uniqueApprovalCount } = await buildApprovalTableHtml(
+      relevantApprovals,
+      getNameFromAddress
+    )
+
+    const approvalCountLabel =
+      uniqueApprovalCount === 1
+        ? "1 unique approval"
+        : `${uniqueApprovalCount} unique approvals`
+    modalContent.innerHTML = `
+      <div style="padding: 1rem 1.1rem 1.2rem;">
+        <h2 style="margin: 0 0 0.4rem; color: rgb(194, 221, 241); text-align: center;">
+          GROUP_APPROVAL transactions
+        </h2>
+        <p style="margin: 0 0 1rem; color: #c7c7c7; text-align: center;">
+          ${qEscapeHtml(nomineeName || "This nominee")} - ${qEscapeHtml(
+      approvalCountLabel
+    )}
+        </p>
+        ${
+          relevantApprovals.length > 0
+            ? tableHtml
+            : `<div class="board-progress-muted" style="text-align:center; padding: 1rem 0;">
+                No GROUP_APPROVAL transactions were found for this invite yet.
+              </div>`
+        }
+      </div>
+    `
+  } catch (error) {
+    console.warn(
+      `Unable to load GROUP_APPROVAL transactions for ${
+        cardIdentifier || nomineeName
+      }:`,
+      error
+    )
+    modalContent.innerHTML = `
+      <div style="padding: 1rem 1.1rem 1.2rem;">
+        <h2 style="margin: 0 0 0.4rem; color: rgb(194, 221, 241); text-align: center;">
+          GROUP_APPROVAL transactions
+        </h2>
+        <div class="board-progress-muted" style="text-align:center; padding: 1rem 0;">
+          Unable to load GROUP_APPROVAL transactions right now.
+        </div>
+      </div>
+    `
+  }
 
   window.onclick = (event) => {
     if (event.target === modal) {
@@ -6110,31 +6496,68 @@ const handleInviteMinterFromButton = (buttonEl) => {
   handleInviteMinter(nomineeName, cardIdentifier)
 }
 
-const featureTriggerCheck = async () => {
-  const latestBlockInfo = await getLatestBlockInfo()
-  const isBlockPassed =
-    latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
-  if (isBlockPassed) {
-    console.warn(
-      `featureTrigger check (verifyFeatureTrigger) determined block has PASSED:`,
-      isBlockPassed
-    )
-    featureTriggerPassed = true
-    return true
-  } else {
-    console.warn(
-      `featureTrigger check (verifyFeatureTrigger) determined block has NOT PASSED:`,
-      isBlockPassed
-    )
-    featureTriggerPassed = false
-    return false
+const FEATURE_TRIGGER_CHECK_CACHE_TTL_MS = 60000
+let featureTriggerCheckCache = {
+  timestamp: 0,
+  value: null,
+  promise: null,
+}
+
+const featureTriggerCheck = async (force = false) => {
+  const now = Date.now()
+  const isStale =
+    now - featureTriggerCheckCache.timestamp >
+    FEATURE_TRIGGER_CHECK_CACHE_TTL_MS
+
+  if (!force && featureTriggerCheckCache.value !== null && !isStale) {
+    return featureTriggerCheckCache.value
   }
+
+  if (!force && featureTriggerCheckCache.promise) {
+    return featureTriggerCheckCache.promise
+  }
+
+  featureTriggerCheckCache.promise = (async () => {
+    const latestBlockInfo = await getLatestBlockInfo()
+    const isBlockPassed =
+      latestBlockInfo.height >= GROUP_APPROVAL_FEATURE_TRIGGER_HEIGHT
+    if (isBlockPassed) {
+      console.warn(
+        `featureTrigger check (verifyFeatureTrigger) determined block has PASSED:`,
+        isBlockPassed
+      )
+      featureTriggerPassed = true
+      featureTriggerCheckCache.value = true
+      featureTriggerCheckCache.timestamp = Date.now()
+      return true
+    } else {
+      console.warn(
+        `featureTrigger check (verifyFeatureTrigger) determined block has NOT PASSED:`,
+        isBlockPassed
+      )
+      featureTriggerPassed = false
+      featureTriggerCheckCache.value = false
+      featureTriggerCheckCache.timestamp = Date.now()
+      return false
+    }
+  })().finally(() => {
+    featureTriggerCheckCache.promise = null
+  })
+
+  return featureTriggerCheckCache.promise
+}
+
+const getMinterInviteAdminThreshold = async () => {
+  const isBlockPassed = await featureTriggerCheck()
+  const minterAdmins = getEffectiveMinterAdminMembers(cachedMinterAdmins)
+  return isBlockPassed ? Math.ceil(minterAdmins.length * 0.4) : 9
 }
 
 const INVITE_CONTEXT_CACHE_TTL_MS = 15000
 let inviteContextCache = {
   timestamp: 0,
   data: null,
+  promise: null,
 }
 
 const getInviteContextCached = async (force = false) => {
@@ -6142,32 +6565,86 @@ const getInviteContextCached = async (force = false) => {
   const isStale =
     now - inviteContextCache.timestamp > INVITE_CONTEXT_CACHE_TTL_MS
 
-  if (force || !inviteContextCache.data || isStale) {
-    const [
-      { finalKickTxs, finalBanTxs },
-      { finalInviteTxs, pendingInviteTxs },
-    ] = await Promise.all([
-      fetchAllKickBanTxData(),
-      fetchAllInviteTransactions(),
-    ])
-
-    inviteContextCache.data = {
-      finalKickTxs,
-      finalBanTxs,
-      finalInviteTxs,
-      pendingInviteTxs,
-    }
-    inviteContextCache.timestamp = now
+  if (!force && inviteContextCache.data && !isStale) {
+    return inviteContextCache.data
   }
 
-  return inviteContextCache.data
+  if (!force && inviteContextCache.promise) {
+    return inviteContextCache.promise
+  }
+
+  inviteContextCache.promise = fetchAllKickBanTxData()
+    .then(({ finalKickTxs, finalBanTxs }) => {
+      const nextData = {
+        finalKickTxs,
+        finalBanTxs,
+      }
+
+      inviteContextCache.data = nextData
+      inviteContextCache.timestamp = Date.now()
+      return nextData
+    })
+    .finally(() => {
+      inviteContextCache.promise = null
+    })
+
+  return inviteContextCache.promise
+}
+
+const getMinterBoardInviteRecordsForAddresses = async (
+  addresses = [],
+  force = false
+) => {
+  // The invitee-targeted invite list is the clearest signal for whether a nominee is
+  // already in the invite flow, so we treat it as the primary invite-state source.
+  const normalizedAddresses = Array.from(
+    new Set(
+      (Array.isArray(addresses) ? addresses : [])
+        .map((address) => String(address || "").trim())
+        .filter(Boolean)
+    )
+  )
+
+  if (normalizedAddresses.length === 0) {
+    return []
+  }
+
+  const inviteResponses = await Promise.all(
+    normalizedAddresses.map((address) =>
+      fetchGroupInvitesByAddressCached(address, force).catch(() => [])
+    )
+  )
+
+  const inviteMap = new Map()
+  for (const response of inviteResponses) {
+    for (const invite of Array.isArray(response) ? response : []) {
+      if (Number(invite?.groupId) !== MINTER_GROUP_ID) {
+        continue
+      }
+
+      const inviteKey =
+        getMinterBoardTxSignature(invite) ||
+        `${String(invite?.invitee || "").trim()}::${String(
+          invite?.creatorAddress || ""
+        ).trim()}::${String(invite?.timestamp || "").trim()}`
+
+      if (!inviteMap.has(inviteKey)) {
+        inviteMap.set(inviteKey, invite)
+      }
+    }
+  }
+
+  return Array.from(inviteMap.values())
 }
 
 const checkAndDisplayInviteButton = async (
   adminYes,
   nomineeName,
-  cardIdentifier
+  cardIdentifier,
+  inviteTimelineState = null,
+  renderVariant = "card"
 ) => {
+  const isListVariant = renderVariant === "list"
   const isSomeTypaAdmin = userState.isAdmin || userState.isMinterAdmin
   const isBlockPassed = await featureTriggerCheck()
   // const minterAdmins = await fetchMinterGroupAdmins()
@@ -6199,21 +6676,34 @@ const checkAndDisplayInviteButton = async (
     return null
   }
   const minterAddress = minterNameInfo.owner
-  // Use short-lived cached tx context to avoid re-querying the same large datasets for every card.
-  const { finalKickTxs, finalBanTxs, pendingInviteTxs } =
-    await getInviteContextCached()
-  // check if there's a KICK or BAN for this user.
-  const priorKick = finalKickTxs.some((tx) => tx.member === minterAddress)
-  const priorBan = finalBanTxs.some((tx) => tx.offender === minterAddress)
-  const pendingInvite = pendingInviteTxs.some(
-    (tx) =>
-      tx.invitee === minterAddress && Number(tx.groupId) === MINTER_GROUP_ID
-  )
-  const priorBanOrKick = priorBan || priorKick
-  console.warn(
-    `PriorBanOrKick determination for ${minterAddress}:`,
-    priorBanOrKick
-  )
+  const resolvedInviteTimelineState =
+    inviteTimelineState ||
+    (await resolveMinterBoardListTimelineState(minterAddress, nomineeName))
+  const inviteDisplayStatus =
+    resolvedInviteTimelineState.displayStatus ||
+    getMinterBoardInviteDisplayStatus(resolvedInviteTimelineState)
+  if (
+    inviteDisplayStatus === "existing" ||
+    inviteDisplayStatus === "invited" ||
+    inviteDisplayStatus === "kicked" ||
+    inviteDisplayStatus === "banned"
+  ) {
+    console.warn(
+      `Invite status for ${minterAddress} is ${inviteDisplayStatus}; ${
+        isListVariant
+          ? "omitting the collapsed-row action slot."
+          : "returning status marker instead of invite button."
+      }`
+    )
+    return isListVariant
+      ? ""
+      : buildMinterInviteStatusHtml(inviteDisplayStatus, {
+          cardIdentifier,
+          nomineeName,
+          nomineeAddress: minterAddress,
+        })
+  }
+  const pendingInvite = resolvedInviteTimelineState.hasPendingInvite
 
   // build the normal invite button & groupApprovalHtml
   let inviteButtonHtml = ""
@@ -6231,35 +6721,25 @@ const checkAndDisplayInviteButton = async (
   const groupApprovalHtml = await checkGroupApprovalAndCreateButton(
     minterAddress,
     cardIdentifier,
-    "GROUP_INVITE"
+    "GROUP_INVITE",
+    { variant: renderVariant }
+  )
+  console.log(
+    `passed invite button creation checks for ${minterAddress}, resolving action buttons...`
+  )
+  console.warn(
+    `Existing Numbers - adminYes/minAdminCount: ${adminYes}/${minAdminCount}`
   )
 
-  // if user had no prior KICK/BAN
-  if (!priorBanOrKick) {
-    console.log(
-      `No prior kick/ban found, creating invite (or approve) button...`
-    )
+  if (groupApprovalHtml) {
     console.warn(
-      `Existing Numbers - adminYes/minAdminCount: ${adminYes}/${minAdminCount}`
+      `groupApprovalCheck found existing groupApproval, returning approval button instead of invite button...`
     )
-
-    // if there's already a pending GROUP_INVITE, return that approval button
-    if (groupApprovalHtml) {
-      console.warn(
-        `groupApprovalCheck found existing groupApproval, returning approval button instead of invite button...`
-      )
-      return groupApprovalHtml
-    }
-
-    console.warn(
-      `No pending approvals or prior kick/ban found, returning invite button...`
-    )
-    return inviteButtonHtml
-  } else {
-    // priorBanOrKick is true => show both
-    console.warn(`Prior kick/ban found! Including BOTH buttons...`)
-    return inviteButtonHtml + groupApprovalHtml
+    return groupApprovalHtml
   }
+
+  console.warn(`No pending approvals found, returning invite button...`)
+  return inviteButtonHtml
 }
 
 const findPendingTxForAddress = async (
@@ -6313,6 +6793,93 @@ let approvalTxSearchCache = {
   data: null,
 }
 const pendingTxByAddressTypeCache = new Map()
+const inviteTxByAddressCache = new Map()
+
+const clearMinterBoardInviteStateCaches = () => {
+  inviteContextCache.timestamp = 0
+  inviteContextCache.data = null
+  inviteContextCache.promise = null
+  approvalTxSearchCache.timestamp = 0
+  approvalTxSearchCache.data = null
+  pendingTxByAddressTypeCache.clear()
+  inviteTxByAddressCache.clear()
+  if (typeof clearGroupInvitesByAddressCache === "function") {
+    clearGroupInvitesByAddressCache()
+  }
+}
+
+const getMinterBoardApprovalStatus = (tx = {}) =>
+  String(tx?.approvalStatus || "")
+    .trim()
+    .toUpperCase()
+
+const isMinterBoardPendingApprovalTx = (tx = {}) =>
+  getMinterBoardApprovalStatus(tx) === "PENDING"
+
+const isMinterBoardRejectedInviteTx = (tx = {}) => {
+  const approvalStatus = getMinterBoardApprovalStatus(tx)
+  return (
+    approvalStatus === "REJECTED" ||
+    approvalStatus === "EXPIRED" ||
+    approvalStatus === "INVALID"
+  )
+}
+
+const isMinterBoardInviteTxForAddress = (tx = {}, address = "") =>
+  Number(tx?.groupId) === MINTER_GROUP_ID &&
+  String(tx?.invitee || "").trim() === String(address || "").trim()
+
+const isMinterBoardKickTxForAddress = (tx = {}, address = "") =>
+  Number(tx?.groupId) === MINTER_GROUP_ID &&
+  String(tx?.member || "").trim() === String(address || "").trim()
+
+const isMinterBoardBanTxForAddress = (tx = {}, address = "") =>
+  Number(tx?.groupId) === MINTER_GROUP_ID &&
+  String(tx?.offender || "").trim() === String(address || "").trim()
+
+const getMinterBoardInviteTxsForAddressCached = async (
+  address,
+  force = false
+) => {
+  const normalizedAddress = String(address || "").trim()
+  if (!normalizedAddress) {
+    return []
+  }
+
+  const now = Date.now()
+  const cached = inviteTxByAddressCache.get(normalizedAddress)
+  const isStale = !cached || now - cached.timestamp > APPROVAL_TX_CACHE_TTL_MS
+
+  if (!force && cached && !isStale) {
+    return cached.data
+  }
+
+  const confirmedInviteTxs = await searchTransactions({
+    txTypes: ["GROUP_INVITE"],
+    address: normalizedAddress,
+    confirmationStatus: "CONFIRMED",
+    limit: 0,
+    reverse: true,
+    offset: 0,
+    startBlock: 1990000,
+    blockLimit: 0,
+    txGroupId: 0,
+    silent: true,
+  }).catch(() => [])
+
+  const matchingInviteTxs = Array.isArray(confirmedInviteTxs)
+    ? confirmedInviteTxs.filter((tx) =>
+        isMinterBoardInviteTxForAddress(tx, normalizedAddress)
+      )
+    : []
+
+  inviteTxByAddressCache.set(normalizedAddress, {
+    timestamp: now,
+    data: matchingInviteTxs,
+  })
+
+  return matchingInviteTxs
+}
 
 const getGroupApprovalTxsCached = async (force = false) => {
   const now = Date.now()
@@ -6320,20 +6887,68 @@ const getGroupApprovalTxsCached = async (force = false) => {
     now - approvalTxSearchCache.timestamp > APPROVAL_TX_CACHE_TTL_MS
 
   if (force || !approvalTxSearchCache.data || isStale) {
-    approvalTxSearchCache.data = await searchTransactions({
-      txTypes: ["GROUP_APPROVAL"],
-      confirmationStatus: "CONFIRMED",
-      limit: 0,
-      reverse: false,
-      offset: 0,
-      startBlock: 1990000,
-      blockLimit: 0,
-      txGroupId: 0,
-    })
+    const [confirmedApprovals, pendingApprovals] = await Promise.all([
+      searchTransactions({
+        txTypes: ["GROUP_APPROVAL"],
+        confirmationStatus: "CONFIRMED",
+        limit: 0,
+        reverse: false,
+        offset: 0,
+        startBlock: 1990000,
+        blockLimit: 0,
+        txGroupId: 0,
+        silent: true,
+      }).catch(() => []),
+      searchPendingTransactions(0, 0, false)
+        .then((pendingTxs) =>
+          Array.isArray(pendingTxs)
+            ? pendingTxs.filter((tx) => tx.type === "GROUP_APPROVAL")
+            : []
+        )
+        .catch(() => []),
+    ])
+
+    approvalTxSearchCache.data = [
+      ...(Array.isArray(confirmedApprovals) ? confirmedApprovals : []),
+      ...(Array.isArray(pendingApprovals) ? pendingApprovals : []),
+    ]
     approvalTxSearchCache.timestamp = now
   }
 
   return approvalTxSearchCache.data
+}
+
+const getRelevantGroupApprovalTxsForAddressCached = async (
+  address,
+  force = false
+) => {
+  const normalizedAddress = String(address || "").trim()
+  if (!normalizedAddress) {
+    return []
+  }
+
+  const inviteTxs = await getMinterBoardInviteTxsForAddressCached(
+    normalizedAddress,
+    force
+  ).catch(() => [])
+  const latestInviteTx = Array.isArray(inviteTxs)
+    ? [...inviteTxs].sort(
+        (a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0)
+      )[0]
+    : null
+  const inviteSignature = getMinterBoardTxSignature(latestInviteTx || {})
+
+  if (!inviteSignature) {
+    return []
+  }
+
+  const approvalTxs = await getGroupApprovalTxsCached(force).catch(() => [])
+  return Array.isArray(approvalTxs)
+    ? approvalTxs.filter(
+        (approvalTx) =>
+          String(approvalTx?.pendingSignature || "").trim() === inviteSignature
+      )
+    : []
 }
 
 const getPendingTxForAddressCached = async (
@@ -6365,8 +6980,10 @@ const getPendingTxForAddressCached = async (
 const checkGroupApprovalAndCreateButton = async (
   address,
   cardIdentifier,
-  transactionType
+  transactionType,
+  { variant = "card" } = {}
 ) => {
+  const isListVariant = variant === "list"
   // We are going to be verifying that the address isn't already a minter, before showing GROUP_APPROVAL buttons potentially...
   if (transactionType === "GROUP_INVITE") {
     console.log(
@@ -6383,7 +7000,6 @@ const checkGroupApprovalAndCreateButton = async (
     }
   }
 
-  const approvalSearchResults = await getGroupApprovalTxsCached()
   let pendingTxs = await getPendingTxForAddressCached(
     address,
     transactionType,
@@ -6402,6 +7018,38 @@ const checkGroupApprovalAndCreateButton = async (
     return null
   }
   const txSig = pendingTxs[0].signature
+
+  if (isListVariant) {
+    if (!isSomeTypaAdmin) {
+      return null
+    }
+
+    const approvalLabel =
+      transactionType === "GROUP_KICK"
+        ? "Approve Kick Tx"
+        : transactionType === "GROUP_BAN"
+        ? "Approve Ban Tx"
+        : "Approve Invite Tx"
+
+    return `
+      <button
+        type="button"
+        class="minter-card-approval-button minter-card-approval-button--list"
+        data-pending-signature="${qEscapeAttr(txSig)}"
+        title="${qEscapeAttr(approvalLabel)}"
+        aria-label="${qEscapeAttr(approvalLabel)}"
+        onclick="handleGroupApproval('${qEscapeAttr(
+          txSig
+        )}', '${qEscapeAttr(cardIdentifier)}', '${qEscapeAttr(
+      transactionType
+    )}')"
+      >
+        ${qEscapeHtml(approvalLabel)}
+      </button>
+    `
+  }
+
+  const approvalSearchResults = await getGroupApprovalTxsCached()
   const txGroupId = Number(pendingTxs[0]?.txGroupId) || MINTER_GROUP_ID
   // Find the relevant signature. (signature of the issued transaction pending.)
   const relevantApprovals = approvalSearchResults.filter(
@@ -6680,6 +7328,11 @@ const handleGroupApproval = async (
             userState.accountName || "An admin"
           } approved a pending ${transactionType} transaction.`,
         })
+        if (transactionType === "GROUP_INVITE") {
+          window.setTimeout(() => {
+            void loadMinterBoardDetectedUpdates().catch(() => null)
+          }, 2500)
+        }
       }
     } else {
       alert(`creating tx failed for some reason`)
@@ -6713,6 +7366,9 @@ const handleJoinGroup = async (minterAddress, cardIdentifier = "") => {
               userState.accountName || "The nominee"
             } joined the MINTER group.`,
           })
+          window.setTimeout(() => {
+            void loadMinterBoardDetectedUpdates().catch(() => null)
+          }, 2500)
         }
         return true
       }
@@ -6753,6 +7409,9 @@ const handleJoinGroup = async (minterAddress, cardIdentifier = "") => {
               userState.accountName || "The nominee"
             } joined the MINTER group.`,
           })
+          window.setTimeout(() => {
+            void loadMinterBoardDetectedUpdates().catch(() => null)
+          }, 2500)
         }
       }
     } else {
@@ -6854,6 +7513,95 @@ function copyAddressFromIdentityBox(buttonEl) {
       markCopied()
     } catch (error) {
       console.warn("Legacy clipboard copy failed:", error)
+    } finally {
+      tempTextArea.remove()
+    }
+  }
+}
+
+function copyMinterBoardCardLink(buttonEl) {
+  const cardIdentifier = String(
+    buttonEl?.dataset?.shareCardIdentifier || ""
+  ).trim()
+  if (!cardIdentifier) {
+    return
+  }
+
+  const routeHash = (() => {
+    if (typeof buildBoardRouteHash === "function") {
+      return buildBoardRouteHash({
+        board: "minter",
+        cardIdentifier,
+        section: "all",
+      })
+    }
+
+    return `#/minter/${encodeURIComponent(cardIdentifier)}/all`
+  })()
+
+  const absoluteUrl = (() => {
+    try {
+      const url = new URL(window.location.href)
+      url.hash = routeHash
+      const qortalPath = url.pathname.startsWith("/render/")
+        ? url.pathname.replace(/^\/render/, "")
+        : url.pathname
+      return `qortal://${qortalPath}${url.search}${url.hash}`
+    } catch (error) {
+      console.warn("Unable to build absolute card link URL:", error)
+      const fallbackPath = String(window.location.pathname || "").startsWith(
+        "/render/"
+      )
+        ? String(window.location.pathname || "").replace(/^\/render/, "")
+        : String(window.location.pathname || "")
+      return `qortal://${fallbackPath}${window.location.search || ""}${routeHash}`
+    }
+  })()
+
+  const restoreTooltip = () => {
+    const originalTitle = buttonEl?.dataset?.originalTitle
+    if (originalTitle) {
+      buttonEl.setAttribute("title", originalTitle)
+    }
+    buttonEl?.classList?.remove("is-copied")
+  }
+
+  const markCopied = () => {
+    buttonEl?.classList?.add("is-copied")
+    buttonEl.setAttribute("title", "Copied link")
+    window.setTimeout(restoreTooltip, 1200)
+  }
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(absoluteUrl)
+      .then(markCopied)
+      .catch((error) => {
+        console.warn(
+          "Clipboard copy failed, falling back to legacy share-link copy flow:",
+          error
+        )
+        legacyCopyCardLink()
+      })
+    return
+  }
+
+  legacyCopyCardLink()
+
+  function legacyCopyCardLink() {
+    const tempTextArea = document.createElement("textarea")
+    tempTextArea.value = absoluteUrl
+    tempTextArea.setAttribute("readonly", "")
+    tempTextArea.style.position = "fixed"
+    tempTextArea.style.opacity = "0"
+    document.body.appendChild(tempTextArea)
+    tempTextArea.select()
+
+    try {
+      document.execCommand("copy")
+      markCopied()
+    } catch (error) {
+      console.warn("Legacy share-link copy failed:", error)
     } finally {
       tempTextArea.remove()
     }
@@ -6966,11 +7714,25 @@ const buildMinterListStatusHtml = ({
   hasApprovedInvite = false,
   hasPendingInvite = false,
   isExistingMinter = false,
+  inviteStatus = "",
 }) => {
   const adminVoteThreshold = getMinterBoardAdminVoteThreshold()
   const adminSupportReached = Number(adminYes || 0) >= adminVoteThreshold
+  const inviteStatusValue = String(inviteStatus || "")
+    .trim()
+    .toLowerCase()
   const inviteProgressReached =
-    (hasApprovedInvite && !hasPendingInvite) || isExistingMinter
+    isExistingMinter ||
+    inviteStatusValue === "invited" ||
+    inviteStatusValue === "kicked" ||
+    inviteStatusValue === "banned" ||
+    (hasApprovedInvite && !hasPendingInvite)
+  const inviteStepLabel =
+    inviteStatusValue === "banned"
+      ? "Banned"
+      : inviteStatusValue === "kicked"
+      ? "Kicked"
+      : "Invited"
   const steps = [
     {
       label: "New",
@@ -6991,7 +7753,7 @@ const buildMinterListStatusHtml = ({
         : "pending",
     },
     {
-      label: "Invited",
+      label: inviteStepLabel,
       state: isExistingMinter
         ? "done"
         : inviteProgressReached
@@ -7025,14 +7787,179 @@ const buildMinterListStateHtml = ({
   isExistingMinter = false,
   hasApprovedInvite = false,
   hasPendingInvite = false,
+  inviteStatus = "",
+  cardIdentifier = "",
+  nomineeName = "",
+  nomineeAddress = "",
 } = {}) => {
+  const normalizedInviteStatus = String(inviteStatus || "")
+    .trim()
+    .toLowerCase()
+  if (normalizedInviteStatus) {
+    return buildMinterInviteStatusHtml(normalizedInviteStatus, {
+      variant: "list",
+      cardIdentifier,
+      nomineeName,
+      nomineeAddress,
+    })
+  }
   if (isExistingMinter) {
-    return `<h4 style="color:rgb(135, 55, 16); margin-bottom: 0.5em;">EXISTING MINTER</h4>`
+    return `
+      <div class="minter-list-invite-state minter-list-invite-state--existing">
+        EXISTING MINTER
+      </div>
+    `
   }
   if (hasApprovedInvite && !hasPendingInvite) {
-    return `<h4 style="color: gold; margin-bottom: 0.5em;">INVITED</h4>`
+    return buildMinterInviteStatusHtml("invited", {
+      variant: "list",
+      cardIdentifier,
+      nomineeName,
+      nomineeAddress,
+    })
+  }
+  if (hasPendingInvite) {
+    return `
+      <div class="minter-list-invite-state minter-list-invite-state--pending">
+        INVITE PENDING APPROVAL
+      </div>
+    `
   }
   return ""
+}
+
+const buildMinterInviteStatusHtml = (
+  status = "",
+  {
+    variant = "card",
+    cardIdentifier = "",
+    nomineeName = "",
+    nomineeAddress = "",
+  } = {}
+) => {
+  const normalizedStatus = String(status || "")
+    .trim()
+    .toLowerCase()
+  const isListVariant = variant === "list"
+
+  if (
+    normalizedStatus !== "existing" &&
+    normalizedStatus !== "invited" &&
+    normalizedStatus !== "pending" &&
+    normalizedStatus !== "kicked" &&
+    normalizedStatus !== "banned"
+  ) {
+    return ""
+  }
+
+  const label =
+    normalizedStatus === "existing"
+      ? "EXISTING MINTER"
+      : normalizedStatus === "pending"
+      ? "INVITE PENDING APPROVAL"
+      : normalizedStatus === "kicked"
+      ? "KICKED FROM MINTER GROUP"
+      : normalizedStatus === "banned"
+      ? "BANNED FROM MINTER GROUP"
+      : "INVITED"
+
+  const shouldLinkToApproval =
+    normalizedStatus === "invited" &&
+    Boolean(
+      String(cardIdentifier || "").trim() ||
+        String(nomineeName || "").trim() ||
+        String(nomineeAddress || "").trim()
+    )
+  const approvalLinkHtml = shouldLinkToApproval
+    ? `
+      <a
+        href="#"
+        class="${
+          isListVariant
+            ? "minter-list-invite-state-link"
+            : "minter-card-invite-state-link"
+        }"
+        data-card-identifier="${qEscapeAttr(cardIdentifier)}"
+        data-nominee-name="${qEscapeAttr(nomineeName)}"
+        data-nominee-address="${qEscapeAttr(nomineeAddress)}"
+        title="View approval data"
+        aria-label="${qEscapeAttr(
+          nomineeName
+            ? `View approval data for ${nomineeName}`
+            : "View approval data"
+        )}"
+        onclick="toggleGroupApprovalDetails(this); return false;"
+      >
+        ${qEscapeHtml(label)}
+      </a>
+    `
+    : qEscapeHtml(label)
+
+  return `
+    <div
+      class="${
+        isListVariant ? "minter-list-invite-state" : "minter-card-invite-state"
+      } ${
+    isListVariant
+      ? `minter-list-invite-state--${qEscapeAttr(normalizedStatus)}`
+      : `minter-card-invite-state--${qEscapeAttr(normalizedStatus)}`
+  }"
+    >
+      ${approvalLinkHtml}
+    </div>
+  `
+}
+
+const buildMinterJoinGroupButtonHtml = ({
+  cardIdentifier = "",
+  variant = "card",
+} = {}) => {
+  const isListVariant = variant === "list"
+  return `
+    <div
+      id="join-button-container-${qEscapeAttr(cardIdentifier)}"
+      class="minter-join-action ${
+        isListVariant ? "minter-join-action--list" : "minter-join-action--card"
+      }"
+    >
+      <button
+        type="button"
+        class="minter-card-join-button ${
+          isListVariant
+            ? "minter-card-join-button--list"
+            : "minter-card-join-button--card"
+        }"
+        onclick="handleJoinGroup('${qEscapeAttr(
+          userState.accountAddress || ""
+        )}', '${qEscapeAttr(cardIdentifier)}')"
+      >
+        Join MINTER Group
+      </button>
+    </div>
+  `
+}
+
+const buildMinterGroupApprovalDetailsButtonHtml = ({
+  cardIdentifier = "",
+  nomineeName = "",
+  nomineeAddress = "",
+  variant = "card",
+} = {}) => {
+  const isListVariant = variant === "list"
+  return `
+    <button
+      type="button"
+      class="minter-card-approval-button ${
+        isListVariant ? "minter-card-approval-button--list" : ""
+      }"
+      data-card-identifier="${qEscapeAttr(cardIdentifier)}"
+      data-nominee-name="${qEscapeAttr(nomineeName)}"
+      data-nominee-address="${qEscapeAttr(nomineeAddress)}"
+      onclick="toggleGroupApprovalDetails(this)"
+    >
+      View approval data
+    </button>
+  `
 }
 
 const getMinterBoardTxSignature = (tx = {}) =>
@@ -7041,7 +7968,7 @@ const getMinterBoardTxSignature = (tx = {}) =>
   ).trim()
 
 const isMinterBoardQortalAddress = (value = "") =>
-  /^Q[a-zA-Z0-9]{32}$/.test(String(value || "").trim())
+  /^Q[a-zA-Z0-9]{33}$/.test(String(value || "").trim())
 
 const resolveMinterBoardListTimelineState = async (
   nomineeAddress = "",
@@ -7055,22 +7982,18 @@ const resolveMinterBoardListTimelineState = async (
       hasApprovedInvite: false,
       hasPendingInvite: false,
       hasGroupApproval: false,
+      hasKicked: false,
+      hasBanned: false,
+      displayStatus: "",
     }
   }
 
   try {
-    const [inviteContext, approvalTxs] = await Promise.all([
-      getInviteContextCached(force).catch(() => ({
-        finalInviteTxs: [],
-        pendingInviteTxs: [],
-      })),
-      getGroupApprovalTxsCached(force).catch(() => []),
-    ])
-
     const candidateAddresses = new Set()
-    const candidateInputs = [normalizedAddressInput, normalizedNameInput].filter(
-      Boolean
-    )
+    const candidateInputs = [
+      normalizedAddressInput,
+      normalizedNameInput,
+    ].filter(Boolean)
 
     for (const candidateInput of candidateInputs) {
       if (isMinterBoardQortalAddress(candidateInput)) {
@@ -7086,53 +8009,141 @@ const resolveMinterBoardListTimelineState = async (
       }
     }
 
-    const allInviteTxs = [
-      ...(Array.isArray(inviteContext?.finalInviteTxs)
-        ? inviteContext.finalInviteTxs
-        : []),
-      ...(Array.isArray(inviteContext?.pendingInviteTxs)
-        ? inviteContext.pendingInviteTxs
-        : []),
-    ].filter(
+    const candidateAddressList = Array.from(candidateAddresses)
+    if (candidateAddressList.length === 0) {
+      return {
+        hasApprovedInvite: false,
+        hasPendingInvite: false,
+        hasGroupApproval: false,
+        hasKicked: false,
+        hasBanned: false,
+        displayStatus: "",
+      }
+    }
+
+    const [
+      inviteRecords,
+      confirmedInviteGroups,
+      pendingInviteGroups,
+      inviteContext,
+    ] = await Promise.all([
+      getMinterBoardInviteRecordsForAddresses(
+        candidateAddressList,
+        force
+      ).catch(() => []),
+      Promise.all(
+        candidateAddressList.map((address) =>
+          getMinterBoardInviteTxsForAddressCached(address, force).catch(
+            () => []
+          )
+        )
+      ).then((results) => results.flat()),
+      Promise.all(
+        candidateAddressList.map((address) =>
+          getPendingTxForAddressCached(
+            address,
+            "GROUP_INVITE",
+            0,
+            0,
+            force
+          ).catch(() => [])
+        )
+      ).then((results) => results.flat()),
+      getInviteContextCached(force).catch(() => ({
+        finalKickTxs: [],
+        finalBanTxs: [],
+      })),
+    ])
+
+    const inviteRecordMap = new Map()
+    for (const invite of Array.isArray(inviteRecords) ? inviteRecords : []) {
+      const inviteKey =
+        getMinterBoardTxSignature(invite) ||
+        `${String(invite?.invitee || "").trim()}::${String(
+          invite?.creatorAddress || ""
+        ).trim()}::${String(invite?.timestamp || "").trim()}`
+      if (!inviteRecordMap.has(inviteKey)) {
+        inviteRecordMap.set(inviteKey, invite)
+      }
+    }
+
+    const confirmedInviteMap = new Map()
+    for (const invite of Array.isArray(confirmedInviteGroups)
+      ? confirmedInviteGroups
+      : []) {
+      const inviteKey =
+        getMinterBoardTxSignature(invite) ||
+        `${String(invite?.invitee || "").trim()}::${String(
+          invite?.creatorAddress || ""
+        ).trim()}::${String(invite?.timestamp || "").trim()}`
+      if (!confirmedInviteMap.has(inviteKey)) {
+        confirmedInviteMap.set(inviteKey, invite)
+      }
+    }
+
+    const pendingInviteMap = new Map()
+    for (const invite of Array.isArray(pendingInviteGroups)
+      ? pendingInviteGroups
+      : []) {
+      const inviteKey =
+        getMinterBoardTxSignature(invite) ||
+        `${String(invite?.invitee || "").trim()}::${String(
+          invite?.creatorAddress || ""
+        ).trim()}::${String(invite?.timestamp || "").trim()}`
+      if (!pendingInviteMap.has(inviteKey)) {
+        pendingInviteMap.set(inviteKey, invite)
+      }
+    }
+
+    const directInviteTxs = Array.from(inviteRecordMap.values()).filter(
+      (tx) => Number(tx?.groupId) === MINTER_GROUP_ID
+    )
+    const confirmedInviteTxs = Array.from(confirmedInviteMap.values()).filter(
+      (tx) => Number(tx?.groupId) === MINTER_GROUP_ID
+    )
+    const pendingInviteTxs = Array.from(pendingInviteMap.values()).filter(
+      (tx) => Number(tx?.groupId) === MINTER_GROUP_ID
+    )
+    const confirmedPendingInviteTxs = confirmedInviteTxs.filter(
+      isMinterBoardPendingApprovalTx
+    )
+    const confirmedApprovedInviteTxs = confirmedInviteTxs.filter(
       (tx) =>
-        Number(tx?.groupId) === MINTER_GROUP_ID &&
-        candidateAddresses.has(String(tx?.invitee || "").trim())
+        !isMinterBoardPendingApprovalTx(tx) &&
+        !isMinterBoardRejectedInviteTx(tx)
+    )
+    const finalKickTxs = Array.isArray(inviteContext?.finalKickTxs)
+      ? inviteContext.finalKickTxs
+      : []
+    const finalBanTxs = Array.isArray(inviteContext?.finalBanTxs)
+      ? inviteContext.finalBanTxs
+      : []
+    const hasKicked = candidateAddressList.some((address) =>
+      finalKickTxs.some((tx) => isMinterBoardKickTxForAddress(tx, address))
+    )
+    const hasBanned = candidateAddressList.some((address) =>
+      finalBanTxs.some((tx) => isMinterBoardBanTxForAddress(tx, address))
     )
 
-    const finalInviteTxs = Array.isArray(inviteContext?.finalInviteTxs)
-      ? inviteContext.finalInviteTxs.filter(
-          (tx) =>
-            Number(tx?.groupId) === MINTER_GROUP_ID &&
-            candidateAddresses.has(String(tx?.invitee || "").trim())
-        )
-      : []
-    const pendingInviteTxs = Array.isArray(inviteContext?.pendingInviteTxs)
-      ? inviteContext.pendingInviteTxs.filter(
-          (tx) =>
-            Number(tx?.groupId) === MINTER_GROUP_ID &&
-            candidateAddresses.has(String(tx?.invitee || "").trim())
-        )
-      : []
-
-    const inviteSignatures = new Set(
-      allInviteTxs.map((tx) => getMinterBoardTxSignature(tx)).filter(Boolean)
-    )
-
-    const hasGroupApproval =
-      inviteSignatures.size > 0 &&
-      Array.isArray(approvalTxs) &&
-      approvalTxs.some((approvalTx) =>
-        inviteSignatures.has(
-          String(approvalTx?.pendingSignature || "").trim()
-        )
-      )
+    const hasPendingInvite =
+      pendingInviteTxs.length > 0 || confirmedPendingInviteTxs.length > 0
     const hasApprovedInvite =
-      finalInviteTxs.length > 0 || (hasGroupApproval && pendingInviteTxs.length === 0)
+      !hasPendingInvite &&
+      (directInviteTxs.length > 0 || confirmedApprovedInviteTxs.length > 0)
+    const displayStatus = getMinterBoardInviteDisplayStatus({
+      hasApprovedInvite,
+      hasPendingInvite,
+      hasKicked,
+      hasBanned,
+    })
 
     return {
       hasApprovedInvite,
-      hasPendingInvite: pendingInviteTxs.length > 0,
-      hasGroupApproval,
+      hasPendingInvite,
+      hasGroupApproval: hasApprovedInvite,
+      hasKicked,
+      hasBanned,
+      displayStatus,
     }
   } catch (error) {
     console.warn(
@@ -7145,6 +8156,9 @@ const resolveMinterBoardListTimelineState = async (
       hasApprovedInvite: false,
       hasPendingInvite: false,
       hasGroupApproval: false,
+      hasKicked: false,
+      hasBanned: false,
+      displayStatus: "",
     }
   }
 }
@@ -7184,6 +8198,9 @@ const buildMinterListCardHTML = ({
   hasApprovedInvite,
   hasPendingInvite,
   isExistingMinter,
+  inviteStatus = "",
+  groupApprovalHtml = "",
+  shareButtonHtml = "",
   editButtonHtml,
   notificationButtonHtml,
 }) => {
@@ -7202,6 +8219,10 @@ const buildMinterListCardHTML = ({
     isExistingMinter,
     hasApprovedInvite,
     hasPendingInvite,
+    inviteStatus,
+    cardIdentifier,
+    nomineeName,
+    nomineeAddress: nomineeAddressValue,
   })
   const listEditButtonHtml = editButtonHtml || ""
 
@@ -7242,13 +8263,14 @@ const buildMinterListCardHTML = ({
 
         <div class="minter-list-status">
           ${buildMinterListStatusHtml({
-          totalYes,
-          totalNo,
-          adminYes,
-          hasApprovedInvite,
-          hasPendingInvite,
-          isExistingMinter,
-        })}
+            totalYes,
+            totalNo,
+            adminYes,
+            hasApprovedInvite,
+            hasPendingInvite,
+            isExistingMinter,
+            inviteStatus,
+          })}
           <div class="minter-list-votes">
             <span class="admin-yes">Admin Yes: ${qEscapeHtml(
               String(adminYes)
@@ -7263,6 +8285,7 @@ const buildMinterListCardHTML = ({
               String(minterNo)
             )}</span>
           </div>
+          ${inviteHtmlAdd}
         </div>
 
         <div class="minter-list-comments">
@@ -7291,6 +8314,16 @@ const buildMinterListCardHTML = ({
 
         <div class="minter-list-actions">
           ${notificationButtonHtml}
+          ${shareButtonHtml}
+          <div
+            id="invite-join-slot-${qEscapeAttr(cardIdentifier)}"
+            class="minter-list-join-slot"
+          ></div>
+          <div
+            id="group-approval-slot-${qEscapeAttr(cardIdentifier)}"
+            class="minter-list-approval-slot"
+            ${groupApprovalHtml ? "" : 'style="display: none;"'}
+          >${groupApprovalHtml}</div>
           <button
             type="button"
             id="minter-list-view-button-${qEscapeAttr(cardIdentifier)}"
@@ -7330,11 +8363,16 @@ const buildMinterListCardHTML = ({
           <button onclick="togglePollDetails('${qEscapeAttr(
             cardIdentifier
           )}')">Display Poll Details</button>
-          <div id="poll-details-${qEscapeAttr(
-            cardIdentifier
-          )}" style="display: none;">${detailsHtml}
+        <div id="poll-details-${qEscapeAttr(
+          cardIdentifier
+        )}" style="display: none;"
+            data-poll-name="${qEscapeAttr(poll || "")}"
+            data-nominee-name="${qEscapeAttr(nomineeName || "")}"
+            data-card-identifier="${qEscapeAttr(cardIdentifier || "")}"
+            data-details-loaded="${
+              detailsHtml ? "false" : "true"
+            }">${detailsHtml}
           </div>
-          ${inviteHtmlAdd}
           <div class="admin-results vote-results vote-results--admin">
             <span class="admin-yes">Admin Yes: ${adminYes}</span>
             <span class="admin-no">Admin No: ${adminNo}</span>
@@ -7409,6 +8447,7 @@ const hydrateMinterBoardCardDisplay = async ({
   cardIdentifier,
   isExistingMinter = false,
   loadToken = minterBoardInfiniteState.loadToken,
+  forceTimelineRefresh = false,
 }) => {
   if (loadToken !== minterBoardInfiniteState.loadToken) return
   const root = document.getElementById(`card-shell-${cardIdentifier}`)
@@ -7434,24 +8473,14 @@ const hydrateMinterBoardCardDisplay = async ({
       (nominatorName
         ? await fetchOwnerAddressFromNameCached(nominatorName).catch(() => "")
         : "")
-    const isListModeHydration = Boolean(
-      root.querySelector(".minter-list-card")
-    )
-    const listTimelinePromise =
-      isListModeHydration && !isExistingMinter
-        ? resolveMinterBoardListTimelineState(
-            resolvedNomineeAddress || currentCardData.nomineeAddress || "",
-            nomineeName || ""
-          )
-        : Promise.resolve({
-            hasApprovedInvite: false,
-            hasPendingInvite: false,
-            hasGroupApproval: false,
-          })
-    let listTimelineState = {
+    const isListModeHydration = Boolean(root.querySelector(".minter-list-card"))
+    let inviteTimelineState = {
       hasApprovedInvite: false,
       hasPendingInvite: false,
       hasGroupApproval: false,
+      hasKicked: false,
+      hasBanned: false,
+      displayStatus: "",
     }
 
     const [
@@ -7461,7 +8490,6 @@ const hydrateMinterBoardCardDisplay = async ({
       nominatorAddressInfo,
       canEditCard,
       pollResultsFresh,
-      invites,
     ] = await Promise.all([
       getMinterAvatar(nomineeName),
       getMinterAvatar(nominatorName || ""),
@@ -7478,11 +8506,6 @@ const hydrateMinterBoardCardDisplay = async ({
       currentCardData.poll
         ? fetchPollResultsCached(currentCardData.poll).catch(() => null)
         : Promise.resolve(null),
-      isExistingMinter
-        ? Promise.resolve([])
-        : fetchGroupInvitesByAddress(
-            resolvedNomineeAddress || cardResource?.name || ""
-          ).catch(() => []),
     ])
 
     if (
@@ -7498,8 +8521,8 @@ const hydrateMinterBoardCardDisplay = async ({
       resolvedNomineeAddress || currentCardData.nomineeAddress || ""
     const nominatorAddressValue =
       resolvedNominatorAddress || currentCardData.nominatorAddress || ""
+    const isSomeTypaAdmin = userState.isAdmin || userState.isMinterAdmin
     let adminYesForInvite = 0
-    let hasMinterInvite = false
     let inviteHtmlAdd = ""
 
     const identityRow = root.querySelector(`#identity-row-${cardIdentifier}`)
@@ -7545,7 +8568,8 @@ const hydrateMinterBoardCardDisplay = async ({
           minterGroupMembers,
           minterAdmins,
           nomineeName,
-          cardIdentifier
+          cardIdentifier,
+          { includeDetails: false }
         )
         if (
           loadToken !== minterBoardInfiniteState.loadToken ||
@@ -7566,6 +8590,25 @@ const hydrateMinterBoardCardDisplay = async ({
           userVote,
         } = pollDetails || {}
         adminYesForInvite = Number(adminYes || 0)
+        currentCardData._adminYes = adminYesForInvite
+        const inviteAdminThreshold = await getMinterInviteAdminThreshold()
+        const inviteGatePassed =
+          !isExistingMinter && adminYesForInvite >= inviteAdminThreshold
+        currentCardData._inviteEligible = inviteGatePassed
+        inviteTimelineState = inviteGatePassed
+          ? await resolveMinterBoardListTimelineState(
+              resolvedNomineeAddress || currentCardData.nomineeAddress || "",
+              nomineeName || "",
+              forceTimelineRefresh
+            )
+          : {
+              hasApprovedInvite: false,
+              hasPendingInvite: false,
+              hasGroupApproval: false,
+              hasKicked: false,
+              hasBanned: false,
+              displayStatus: "",
+            }
         const userVoteStateClass =
           userVote === 0
             ? "card--user-vote-yes"
@@ -7576,6 +8619,10 @@ const hydrateMinterBoardCardDisplay = async ({
         if (userVoteStateClass) {
           root.classList.add(userVoteStateClass)
         }
+        pollDetailsSlot.dataset.pollName = currentCardData.poll || ""
+        pollDetailsSlot.dataset.nomineeName = nomineeName || ""
+        pollDetailsSlot.dataset.cardIdentifier = cardIdentifier || ""
+        pollDetailsSlot.dataset.detailsLoaded = "false"
         pollDetailsSlot.innerHTML = detailsHtml
         const adminYesSlot = root.querySelector(".admin-results .admin-yes")
         const adminNoSlot = root.querySelector(".admin-results .admin-no")
@@ -7601,7 +8648,6 @@ const hydrateMinterBoardCardDisplay = async ({
         if (totalNoWeightSlot)
           totalNoWeightSlot.textContent = `Weight: ${totalNoWeight}`
 
-        listTimelineState = await listTimelinePromise
         const listStatusTrack = root.querySelector(".minter-list-status-track")
         if (listStatusTrack) {
           if (
@@ -7614,23 +8660,31 @@ const hydrateMinterBoardCardDisplay = async ({
             totalYes,
             totalNo,
             adminYes,
-            hasApprovedInvite: listTimelineState.hasApprovedInvite,
-            hasPendingInvite: listTimelineState.hasPendingInvite,
+            hasApprovedInvite: inviteTimelineState.hasApprovedInvite,
+            hasPendingInvite: inviteTimelineState.hasPendingInvite,
             isExistingMinter,
+            inviteStatus:
+              inviteTimelineState.displayStatus ||
+              getMinterBoardInviteDisplayStatus(inviteTimelineState),
           })
         }
 
         const listAdminYesSlot = root.querySelector(
           ".minter-list-votes .admin-yes"
         )
-        const listAdminNoSlot = root.querySelector(".minter-list-votes .admin-no")
+        const listAdminNoSlot = root.querySelector(
+          ".minter-list-votes .admin-no"
+        )
         const listMinterYesSlot = root.querySelector(
           ".minter-list-votes .minter-yes"
         )
-        const listMinterNoSlot = root.querySelector(".minter-list-votes .minter-no")
+        const listMinterNoSlot = root.querySelector(
+          ".minter-list-votes .minter-no"
+        )
         if (listAdminYesSlot)
           listAdminYesSlot.textContent = `Admin Yes: ${adminYes}`
-        if (listAdminNoSlot) listAdminNoSlot.textContent = `Admin No: ${adminNo}`
+        if (listAdminNoSlot)
+          listAdminNoSlot.textContent = `Admin No: ${adminNo}`
         if (listMinterYesSlot)
           listMinterYesSlot.textContent = `Minter Yes: ${minterYes}`
         if (listMinterNoSlot)
@@ -7642,61 +8696,149 @@ const hydrateMinterBoardCardDisplay = async ({
         if (listStateSlot) {
           const listStateHtml = buildMinterListStateHtml({
             isExistingMinter,
-            hasApprovedInvite: listTimelineState.hasApprovedInvite,
-            hasPendingInvite: listTimelineState.hasPendingInvite,
+            hasApprovedInvite: inviteTimelineState.hasApprovedInvite,
+            hasPendingInvite: inviteTimelineState.hasPendingInvite,
+            inviteStatus:
+              inviteTimelineState.displayStatus ||
+              getMinterBoardInviteDisplayStatus(inviteTimelineState),
+            cardIdentifier,
+            nomineeName,
+            nomineeAddress: nomineeAddressValue,
           })
           listStateSlot.innerHTML = listStateHtml
           listStateSlot.style.display = listStateHtml ? "" : "none"
         }
       } else {
+        currentCardData._inviteEligible = false
         pollDetailsSlot.innerHTML = `<div class="board-progress-muted">No poll data found for this nomination yet.</div>`
       }
     }
+
+    const inviteDisplayStatus =
+      inviteTimelineState.displayStatus ||
+      getMinterBoardInviteDisplayStatus(inviteTimelineState) ||
+      String(currentCardData._inviteDisplayStatus || "")
+        .trim()
+        .toLowerCase()
+    currentCardData._inviteDisplayStatus = inviteDisplayStatus
+    const inviteApprovalViewerVisible =
+      currentCardData._inviteEligible === true ||
+      inviteDisplayStatus === "invited" ||
+      inviteDisplayStatus === "pending"
+    const inviteHasBeenApprovedForDisplay = inviteDisplayStatus === "invited"
+    const inviteHasPendingForDisplay = inviteDisplayStatus === "pending"
+    const inviteIsKickedForDisplay = inviteDisplayStatus === "kicked"
+    const inviteIsBannedForDisplay = inviteDisplayStatus === "banned"
+    const inviteStatusHtml = buildMinterInviteStatusHtml(
+      inviteDisplayStatus || (isExistingMinter ? "existing" : ""),
+      {
+        variant: isListModeHydration ? "list" : "card",
+        cardIdentifier,
+        nomineeName,
+        nomineeAddress: nomineeAddressValue || "",
+      }
+    )
+    const inviteJoinButtonHtml =
+      inviteHasBeenApprovedForDisplay &&
+      (userState.accountName === nomineeName ||
+        userState.accountAddress === nomineeAddressValue)
+        ? buildMinterJoinGroupButtonHtml({
+            cardIdentifier,
+            variant: isListModeHydration ? "list" : "card",
+          })
+        : ""
+
+    const inviteCardBackgroundColor = inviteHasBeenApprovedForDisplay
+      ? "black"
+      : inviteIsKickedForDisplay
+      ? "rgb(29, 7, 4)"
+      : inviteIsBannedForDisplay
+      ? "rgb(24, 3, 3)"
+      : ""
+
+    if (isListModeHydration) {
+      root.style.setProperty(
+        "--minter-list-accent",
+        inviteCardBackgroundColor || finalBgColor
+      )
+    }
+    if (inviteCardBackgroundColor) {
+      root.style.backgroundColor = inviteCardBackgroundColor
+    }
+
+    root.classList.toggle("card--invited", inviteDisplayStatus === "invited")
+    root.classList.toggle("card--kicked", inviteDisplayStatus === "kicked")
+    root.classList.toggle("card--banned", inviteDisplayStatus === "banned")
+
+    const inviteStateSlot = root.querySelector(
+      isListModeHydration
+        ? `#minter-list-state-${cardIdentifier}`
+        : `#invite-state-slot-${cardIdentifier}`
+    )
+    if (inviteStateSlot) {
+      inviteStateSlot.innerHTML = inviteStatusHtml
+      inviteStateSlot.style.display = inviteStatusHtml ? "" : "none"
+    }
+
+    const inviteJoinSlot = root.querySelector(
+      `#invite-join-slot-${cardIdentifier}`
+    )
+    if (inviteJoinSlot) {
+      inviteJoinSlot.innerHTML = inviteJoinButtonHtml
+    }
+
+    const groupApprovalSlot = root.querySelector(
+      `#group-approval-slot-${cardIdentifier}`
+    )
+    if (groupApprovalSlot) {
+      const groupApprovalHtml = inviteApprovalViewerVisible
+        ? buildMinterGroupApprovalDetailsButtonHtml({
+            cardIdentifier,
+            nomineeName,
+            nomineeAddress: nomineeAddressValue || "",
+            variant: isListModeHydration ? "list" : "card",
+          })
+        : ""
+      groupApprovalSlot.innerHTML = groupApprovalHtml
+      groupApprovalSlot.style.display = groupApprovalHtml ? "" : "none"
+    }
+
+    rememberMinterBoardInviteSnapshot(cardIdentifier, {
+      ...inviteTimelineState,
+      isExistingMinter,
+    })
 
     const inviteSlot = root.querySelector(
       `#invite-button-slot-${cardIdentifier}`
     )
     if (inviteSlot) {
-      hasMinterInvite = Array.isArray(invites)
-        ? invites.some((invite) => Number(invite.groupId) === MINTER_GROUP_ID)
-        : false
-      const inviteHasBeenApprovedForDisplay = isListModeHydration
-        ? listTimelineState.hasApprovedInvite &&
-          !listTimelineState.hasPendingInvite
-        : hasMinterInvite
-      if (isExistingMinter) {
-        inviteHtmlAdd = ""
-      } else if (inviteHasBeenApprovedForDisplay) {
-        if (
-          userState.accountName === nomineeName ||
-          userState.accountAddress === nomineeAddressValue
-        ) {
-          inviteHtmlAdd = `
-            <div id="join-button-container-${cardIdentifier}" style="margin-top: 1em;">
-              <button
-                style="padding: 8px; background: rgb(37, 99, 44); color:rgb(240, 240, 240); border: 1px solid rgb(255, 255, 255); border-radius: 5px; cursor: pointer;"
-                onmouseover="this.style.backgroundColor='rgb(25, 47, 39) '"
-                onmouseout="this.style.backgroundColor='rgb(37, 99, 44) '"
-                onclick="handleJoinGroup('${qEscapeAttr(
-                  userState.accountAddress
-                )}', '${qEscapeAttr(cardIdentifier)}')">
-              Join MINTER Group
-            </button>
-          </div>
-          `
-        } else {
-          inviteHtmlAdd = ""
-        }
-      } else if (canEditCard) {
+      if (
+        isExistingMinter ||
+        inviteDisplayStatus === "invited" ||
+        inviteDisplayStatus === "kicked" ||
+        inviteDisplayStatus === "banned"
+      ) {
+        inviteHtmlAdd = isListModeHydration
+          ? ""
+          : buildMinterInviteStatusHtml(inviteDisplayStatus, {
+              variant: "card",
+              cardIdentifier,
+              nomineeName,
+              nomineeAddress: nomineeAddressValue || "",
+            })
+      } else if (isSomeTypaAdmin) {
         inviteHtmlAdd = await checkAndDisplayInviteButton(
           adminYesForInvite,
           nomineeName,
-          cardIdentifier
+          cardIdentifier,
+          inviteTimelineState,
+          isListModeHydration ? "list" : "card"
         ).catch(() => "")
       } else {
         inviteHtmlAdd = ""
       }
       inviteSlot.innerHTML = inviteHtmlAdd
+      inviteSlot.style.display = String(inviteHtmlAdd || "").trim() ? "" : "none"
     }
 
     const supportResultsLoadingSlot = root.querySelector(
@@ -7769,6 +8911,7 @@ const hydrateMinterBoardCardDisplay = async ({
       nomineeAddress: nomineeAddressValue,
       nominator: nominatorName,
       nominatorAddress: nominatorAddressValue,
+      _inviteDisplayStatus: inviteDisplayStatus,
     })
   } catch (error) {
     console.warn(`Unable to hydrate nomination card ${cardIdentifier}:`, error)
@@ -7779,9 +8922,8 @@ const toggleMinterListDetails = async (cardIdentifier, buttonEl) => {
   const detail = document.getElementById(`minter-list-detail-${cardIdentifier}`)
   if (!detail) return
   const isHidden = detail.hidden
-  const shouldShowComments = String(
-    buttonEl?.dataset?.showComments || "false"
-  ).toLowerCase() === "true"
+  const shouldShowComments =
+    String(buttonEl?.dataset?.showComments || "false").toLowerCase() === "true"
   if (isHidden && !shouldShowComments) {
     await setMinterListCommentsVisibility(cardIdentifier, false)
   }
@@ -7915,12 +9057,22 @@ const createCardHTML = async (
   `
   const quickNotificationButtonHtml =
     buildMinterCardNotificationButtonHtml(cardIdentifier)
+  const quickShareButtonHtml = buildMinterBoardShareLinkButtonHtml({
+    cardIdentifier,
+    variant: "card",
+  })
   const quickEditButtonHtml = `<div id="edit-button-slot-${qEscapeAttr(
     cardIdentifier
   )}"></div>`
+  const quickActionButtonsHtml = `
+    <div class="minter-card-action-buttons">
+      ${quickShareButtonHtml}
+      ${quickEditButtonHtml}
+    </div>
+  `
   const quickInviteHtmlAdd = `<div id="invite-button-slot-${qEscapeAttr(
     cardIdentifier
-  )}" class="minter-card-invite-slot"></div>`
+  )}" class="minter-list-admin-action-slot"></div>`
   const quickDetailsHtml = `
     <div class="board-progress-muted" style="margin: 0.5em 0; color: #c7c7c7;">
       Loading current approval results...
@@ -7936,20 +9088,55 @@ const createCardHTML = async (
   const quickOptimisticNotice = quickCardData._optimisticPending
     ? `<div class="board-progress-muted" style="margin: 0.75em 0; color: #ffd27d;">Published locally. Waiting for QDN indexing.</div>`
     : ""
-  const quickInvitedText = isExistingMinter
+  const quickInviteDisplayStatus = String(
+    quickCardData._inviteDisplayStatus || ""
+  )
+    .trim()
+    .toLowerCase()
+  const quickInviteEligible = Boolean(quickCardData._inviteEligible)
+  const quickApprovalViewerVisible =
+    quickInviteEligible ||
+    quickInviteDisplayStatus === "invited" ||
+    quickInviteDisplayStatus === "pending"
+  const isListMode = getMinterBoardDisplayMode() === "list"
+  const quickInvitedText = quickInviteDisplayStatus
+    ? buildMinterInviteStatusHtml(quickInviteDisplayStatus, {
+        variant: "card",
+        cardIdentifier,
+        nomineeName: quickNomineeName,
+        nomineeAddress: quickNomineeAddressValue || "",
+      })
+    : isExistingMinter
     ? `<h4 style="color:rgb(135, 55, 16); margin-bottom: 0.5em;">EXISTING MINTER</h4>`
     : ""
+  const quickGroupApprovalHtml = quickApprovalViewerVisible
+    ? buildMinterGroupApprovalDetailsButtonHtml({
+        cardIdentifier,
+        nomineeName: quickNomineeName,
+        nomineeAddress: quickNomineeAddressValue || "",
+        variant: isListMode ? "list" : "card",
+      })
+    : ""
   const quickUserVoteStateClass = ""
-  const quickFinalBgColor = bgColor
+  let quickFinalBgColor = bgColor
+  if (quickInviteDisplayStatus === "invited") {
+    quickFinalBgColor = "black"
+  } else if (quickInviteDisplayStatus === "kicked") {
+    quickFinalBgColor = "rgb(29, 7, 4)"
+  } else if (quickInviteDisplayStatus === "banned") {
+    quickFinalBgColor = "rgb(24, 3, 3)"
+  } else if (isExistingMinter) {
+    quickFinalBgColor = "rgb(99, 99, 99)"
+  }
   const quickNomineeLevelLabel = "..."
   const quickCommentCount = Number(commentCount || 0)
-  const isListMode = getMinterBoardDisplayMode() === "list"
   minterBoardCardDataByIdentifier.set(cardIdentifier, {
     ...quickCardData,
     nominee: quickNomineeName,
     nomineeAddress: quickNomineeAddressValue,
     nominator: quickNominatorName,
     nominatorAddress: quickNominatorAddressValue,
+    _inviteDisplayStatus: quickInviteDisplayStatus,
   })
   createModal("links")
   createModal("poll-details")
@@ -8002,6 +9189,8 @@ const createCardHTML = async (
       hasApprovedInvite: false,
       hasPendingInvite: false,
       isExistingMinter,
+      inviteStatus: quickInviteDisplayStatus,
+      groupApprovalHtml: quickGroupApprovalHtml,
       editButtonHtml: quickEditButtonHtml,
       notificationButtonHtml: quickNotificationButtonHtml,
     })
@@ -8029,7 +9218,7 @@ const createCardHTML = async (
     style="background-color: ${quickFinalBgColor}"
   >
     ${quickNotificationButtonHtml}
-    ${quickEditButtonHtml}
+    ${quickActionButtonsHtml}
     <div class="minter-card-header">
       <span class="minter-card-avatar" id="card-avatar-${qEscapeAttr(
         cardIdentifier
@@ -8058,7 +9247,11 @@ const createCardHTML = async (
       )}')">Display Poll Details</button>
       <div id="poll-details-${qEscapeAttr(
         cardIdentifier
-      )}" style="display: none;">${quickDetailsHtml}</div>
+      )}" style="display: none;"
+        data-poll-name="${qEscapeAttr(quickCardData.poll || "")}"
+        data-nominee-name="${qEscapeAttr(quickNomineeName || "")}"
+        data-card-identifier="${qEscapeAttr(cardIdentifier || "")}"
+        data-details-loaded="false">${quickDetailsHtml}</div>
       ${quickInviteHtmlAdd}
       <div class="admin-results vote-results vote-results--admin">
         <span class="admin-yes">Admin Yes: ...</span>
@@ -8123,348 +9316,4 @@ const createCardHTML = async (
     <p class="card-published-date">Published ${safeQuickFormattedDate}</p>
   </div>
   `
-  {
-    const {
-      header,
-      content,
-      links,
-      nominee,
-      nomineeAddress,
-      nominator,
-      nominatorAddress,
-      creator,
-      creatorAddress,
-      publishedBy,
-      publishedByAddress,
-      timestamp,
-      poll,
-    } = cardData
-    const formattedDate = cardUpdatedTime
-      ? new Date(cardUpdatedTime).toLocaleString()
-      : new Date(timestamp).toLocaleString()
-    const nomineeName = getCardNomineeName(cardData, creator || "Unknown")
-    const nomineeAddressValue = getCardNomineeAddress(
-      cardData,
-      address || creatorAddress || nomineeAddress || ""
-    )
-    const nominatorName = getCardNominatorName(
-      cardData,
-      publishedBy || "Unknown"
-    )
-    const nominatorAddressValue = getCardNominatorAddress(
-      cardData,
-      publishedByAddress || nominatorAddress || ""
-    )
-    const avatarPromise = Promise.all([
-      getMinterAvatar(nomineeName),
-      getMinterAvatar(nominatorName || ""),
-    ]).catch(() => [
-      `<span class="user-avatar-shell user-avatar-shell--placeholder" aria-hidden="true"></span>`,
-      `<span class="user-avatar-shell user-avatar-shell--placeholder" aria-hidden="true"></span>`,
-    ])
-    const addressInfoPromise = Promise.all([
-      getAddressInfoCached(nomineeAddressValue || address),
-      nominatorAddressValue
-        ? getAddressInfoCached(nominatorAddressValue)
-        : Promise.resolve(null),
-    ]).catch(() => [null, null])
-    const canEditCardPromise = canCurrentUserEditPublishedCard(
-      nominatorName,
-      nominatorAddressValue || ""
-    ).catch(() => false)
-    const inviteLookupPromise = isExistingMinter
-      ? Promise.resolve([])
-      : fetchGroupInvitesByAddress(nomineeAddressValue || address).catch(
-          () => []
-        )
-    const [
-      [avatarHtml, nominatorAvatarHtml],
-      [nomineeAddressInfo, nominatorAddressInfo],
-      canEditCard,
-      invites,
-    ] = await Promise.all([
-      avatarPromise,
-      addressInfoPromise,
-      canEditCardPromise,
-      inviteLookupPromise,
-    ])
-    const linksArray = Array.isArray(links) ? links : []
-    minterBoardCardDataByIdentifier.set(cardIdentifier, {
-      ...cardData,
-      nominee: nomineeName,
-      nomineeAddress: nomineeAddressValue,
-      nominator: nominatorName,
-      nominatorAddress: nominatorAddressValue,
-    })
-    const linksHTML = linksArray
-      .map(
-        (link, index) => `
-    <button data-link="${qEscapeAttr(
-      link
-    )}" onclick="openLinksModalFromButton(this)">
-      ${qEscapeHtml(`Link ${index + 1} - ${link}`)}
-    </button>
-  `
-      )
-      .join("")
-    const safeNominee = qEscapeHtml(nomineeName)
-    const safeHeader = qEscapeHtml(header)
-    const renderedContent = qRenderRichContentHtml(content)
-    const nomineeLinkHtml =
-      typeof buildBoardAccountTriggerHtml === "function"
-        ? buildBoardAccountTriggerHtml({
-            name: nomineeName || "Unknown",
-            address: nomineeAddressValue || "",
-            label: nomineeName || "Unknown",
-            className: "card-account-trigger card-account-trigger--heading",
-            tagName: "button",
-          })
-        : safeNominee
-    const safeFormattedDate = qEscapeHtml(formattedDate)
-    const optimisticNotice = cardData._optimisticPending
-      ? `<div class="board-progress-muted" style="margin: 0.75em 0; color: #ffd27d;">Published locally. Waiting for QDN indexing.</div>`
-      : ""
-    const nomineeLevel = nomineeAddressInfo?.level ?? 0
-    const nominatorLevel = nominatorAddressInfo?.level ?? null
-    const editButtonHtml = canEditCard
-      ? `
-      <button
-        type="button"
-        class="card-edit-button"
-        title="Edit card"
-        aria-label="Edit card"
-        onclick="openMinterBoardCardEditor('${qEscapeAttr(cardIdentifier)}')"
-      >
-        <span class="mobi-mbri-edit-2" aria-hidden="true"></span>
-      </button>
-    `
-      : ""
-    const notificationButtonHtml =
-      buildMinterCardNotificationButtonHtml(cardIdentifier)
-    const identityBoxesHtml = `
-    <div class="card-identity-row">
-      ${buildIdentityBoxHtml(
-        "Nominee",
-        nomineeName,
-        nomineeAddressValue || "",
-        nomineeLevel,
-        avatarHtml
-      )}
-      ${buildIdentityBoxHtml(
-        "Nominator",
-        nominatorName || "Unknown",
-        nominatorAddressValue || "",
-        nominatorLevel,
-        nominatorAvatarHtml
-      )}
-    </div>
-  `
-    const supportResultsLoadingHtml = `
-      <div class="minter-card-results-loading" id="support-results-loading-${qEscapeAttr(
-        cardIdentifier
-      )}" style="margin: 0.5em 0;">
-        ${getBoardInlineLoadingHTML("Loading current approval results...")}
-      </div>
-    `
-    if (poll) {
-      void fetchPollResultsCached(poll).catch(() => null)
-    }
-    createModal("links")
-    createModal("poll-details")
-
-    let hasMinterInvite = false
-    try {
-      hasMinterInvite = invites.some(
-        (invite) => Number(invite.groupId) === MINTER_GROUP_ID
-      )
-    } catch (error) {
-      console.error("Error checking invites for user:", error)
-    }
-
-    const inviteButtonSlotHtml = `
-      <div
-        id="invite-button-slot-${qEscapeAttr(cardIdentifier)}"
-        class="minter-card-invite-slot"
-      ></div>
-    `
-    let inviteHtmlAdd = inviteButtonSlotHtml
-
-    let finalBgColor = bgColor
-    const userVoteStateClass = ""
-    let invitedText = "" // for "INVITED" label if found
-    let adminYes = 0
-    let adminNo = 0
-    let minterYes = 0
-    let minterNo = 0
-    let totalYes = 0
-    let totalNo = 0
-    let totalYesWeight = 0
-    let totalNoWeight = 0
-    let detailsHtml = supportResultsLoadingHtml
-    let userVote = null
-    const penaltyText =
-      (nomineeAddressInfo?.blocksMintedPenalty ?? 0) === 0
-        ? ""
-        : "<p>(has Blocks Penalty)<p>"
-    const adjustmentText =
-      (nomineeAddressInfo?.blocksMintedAdjustment ?? 0) === 0
-        ? ""
-        : "<p>(has Blocks Adjustment)<p>"
-
-    if (isExistingMinter) {
-      finalBgColor = "rgb(99, 99, 99)"
-      invitedText = `<h4 style="color:rgb(135, 55, 16); margin-bottom: 0.5em;">EXISTING MINTER</h4>`
-      inviteHtmlAdd = ""
-    } else if (hasMinterInvite) {
-      // Issued invites no longer need admin controls; only the nominee gets the join action.
-      finalBgColor = "black"
-      invitedText = `<h4 style="color: gold; margin-bottom: 0.5em;">INVITED</h4>`
-      if (
-        userState.accountName === nomineeName ||
-        userState.accountAddress === nomineeAddressValue
-      ) {
-        inviteHtmlAdd = `
-          <div id="join-button-container-${cardIdentifier}" style="margin-top: 1em;">
-              <button
-                style="padding: 8px; background: rgb(37, 99, 44); color:rgb(240, 240, 240); border: 1px solid rgb(255, 255, 255); border-radius: 5px; cursor: pointer;"
-                onmouseover="this.style.backgroundColor='rgb(25, 47, 39) '"
-                onmouseout="this.style.backgroundColor='rgb(37, 99, 44) '"
-                onclick="handleJoinGroup('${qEscapeAttr(
-                  userState.accountAddress
-                )}', '${qEscapeAttr(cardIdentifier)}')">
-              Join MINTER Group
-            </button>
-          </div>
-          `
-      } else {
-        console.log(`user is not the nominee... NOT displaying join button`)
-        inviteHtmlAdd = ""
-      }
-    } else if (!canEditCard) {
-      inviteHtmlAdd = ""
-    }
-
-    if (isListMode) {
-      const listTimelineState = await resolveMinterBoardListTimelineState(
-        nomineeAddressValue || "",
-        nomineeName || ""
-      )
-      return buildMinterListCardHTML({
-        cardIdentifier,
-        userVoteStateClass,
-        finalBgColor,
-        avatarHtml,
-        nomineeLinkHtml,
-        nomineeName,
-        nomineeLevel,
-        nomineeAddressValue,
-        nominatorName,
-        nominatorAddressValue,
-        safeHeader,
-        renderedContent,
-        linksHTML,
-        safeFormattedDate,
-        optimisticNotice,
-        identityBoxesHtml,
-        penaltyText,
-        adjustmentText,
-        invitedText,
-        detailsHtml,
-        inviteHtmlAdd,
-        adminYes,
-        adminNo,
-        minterYes,
-        minterNo,
-        totalYes,
-        totalNo,
-        totalYesWeight,
-        totalNoWeight,
-        commentCount,
-        poll,
-        hasApprovedInvite: listTimelineState.hasApprovedInvite,
-        hasPendingInvite: listTimelineState.hasPendingInvite,
-        isExistingMinter,
-        editButtonHtml,
-        notificationButtonHtml,
-      })
-    }
-
-    return `
-  <div class="minter-card ${userVoteStateClass}" style="background-color: ${finalBgColor}">
-    ${notificationButtonHtml}
-    ${editButtonHtml}
-    <div class="minter-card-header">
-      ${avatarHtml}
-      <h3>${nomineeLinkHtml} - Level ${nomineeLevel}</h3>
-      ${identityBoxesHtml}
-      <div class="card-title-box">${safeHeader}</div>
-      ${penaltyText}${adjustmentText}${invitedText}
-      ${optimisticNotice}
-    </div>
-    <div class="support-header"><h5>NOMINATION STATEMENT</h5></div>
-    <div class="info board-rich-content ql-editor">
-      ${renderedContent}
-    </div>
-    <div class="support-header"><h5>NOMINATION LINKS</h5></div>
-    <div class="info-links">
-      ${linksHTML}
-    </div>
-    <div class="results-header support-header"><h5>CURRENT SUPPORT RESULTS</h5></div>
-    <div class="minter-card-results">
-      ${supportResultsLoadingHtml}
-      <button onclick="togglePollDetails('${cardIdentifier}')">Display Poll Details</button>
-      <div id="poll-details-${cardIdentifier}" style="display: none;">
-        ${supportResultsLoadingHtml}
-      </div>
-      ${inviteHtmlAdd}
-      <div class="admin-results vote-results vote-results--admin">
-        <span class="admin-yes">Admin Yes: ...</span>
-        <span class="admin-no">Admin No: ...</span>
-      </div>
-      <div class="minter-results vote-results vote-results--outlined">
-        <span class="minter-yes">Minter Yes: ...</span>
-        <span class="minter-no">Minter No: ...</span>
-      </div>
-      <div class="total-results vote-results vote-results--outlined vote-results--totals">
-        <div class="vote-total-group">
-          <span class="total-yes">Total Yes: ...</span>
-          <span class="vote-total-weight">Weight: ...</span>
-        </div>
-        <div class="vote-total-group">
-          <span class="total-no">Total No: ...</span>
-          <span class="vote-total-weight">Weight: ...</span>
-        </div>
-      </div>
-    </div>
-    <div class="support-header"><h5>SUPPORT NOMINATION FOR </h5><h5 style="color: #ffae42;">${safeNominee}</h5>
-    <p style="color: #c7c7c7; font-size: .65rem; margin-top: 1vh">(click COMMENTS button to open/close card comments)</p>
-    </div>
-    <div class="actions">
-      <div class="actions-buttons">
-        <button class="yes" onclick="voteYesOnMinterCard('${qEscapeAttr(
-          cardIdentifier
-        )}', '${qEscapeAttr(poll)}')">YES</button>
-        <button class="comment" id="comment-button-${cardIdentifier}" data-comment-count="${commentCount}"  onclick="toggleComments('${cardIdentifier}')">COMMENTS (${commentCount})</button>
-        <button class="no" onclick="voteNoOnMinterCard('${qEscapeAttr(
-          cardIdentifier
-        )}', '${qEscapeAttr(poll)}')">NO</button>
-      </div>
-    </div>
-    <div id="comments-section-${cardIdentifier}" class="comments-section" style="display: none; margin-top: 20px;">
-      <div id="comments-container-${cardIdentifier}" class="comments-container"></div>
-      ${
-        typeof getBoardCommentComposerHtml === "function"
-          ? getBoardCommentComposerHtml(cardIdentifier)
-          : `<textarea id="new-comment-${cardIdentifier}" placeholder="Write a comment..." style="width: 100%; margin-top: 10px;"></textarea>`
-      }
-      ${
-        typeof getBoardCommentActionBarHtml === "function"
-          ? getBoardCommentActionBarHtml(cardIdentifier, "postComment")
-          : `<button onclick="postComment('${cardIdentifier}')">Post Comment</button>`
-      }
-    </div>
-    <p class="card-published-date">Published ${safeFormattedDate}</p>
-  </div>
-  `
-  }
 }

@@ -55,17 +55,10 @@ const loadAddRemoveAdminPage = async () => {
   if (typeof detachMinterBoardInfiniteScroll === "function") {
     detachMinterBoardInfiniteScroll()
   }
+  qMintershipActiveBoard = "ar"
 
   console.log("Loading Add/Remove Admin page...")
-  const bodyChildren = document.body.children
-
-  for (let i = bodyChildren.length - 1; i >= 0; i--) {
-    const child = bodyChildren[i]
-
-    if (!child.classList.contains("menu")) {
-      child.remove()
-    }
-  }
+  clearQMintershipBodyContent()
 
   const mainContainer = document.createElement("div")
   mainContainer.className = "add-remove-admin-main"
@@ -1465,6 +1458,7 @@ const createARCardHTML = async (
 
   return `
     <div
+      id="card-shell-${qEscapeAttr(cardIdentifier)}"
       class="admin-card ar-card ${cardThemeClass}"
       style="--ar-card-background: ${cardColorCode}; --ar-card-accent: ${cardAccentColor}; --ar-card-state-accent: ${cardStateAccent}; --ar-card-border: ${cardBorderColor};"
     >
@@ -1485,7 +1479,14 @@ const createARCardHTML = async (
       <div class="results-header support-header"><h5>CURRENT RESULTS</h5></div>
       <div class="minter-card-results">
         <button onclick="togglePollDetails('${cardIdentifier}')">Display Poll Details</button>
-        <div id="poll-details-${cardIdentifier}" style="display: none;">
+        <div
+          id="poll-details-${cardIdentifier}"
+          style="display: none;"
+          data-poll-name="${qEscapeAttr(poll || "")}"
+          data-nominee-name="${qEscapeAttr(creator || "")}"
+          data-card-identifier="${qEscapeAttr(cardIdentifier || "")}"
+          data-details-loaded="${detailsHtml ? "false" : "true"}"
+        >
           ${detailsHtml}
         </div>
         ${actionsHtml}
